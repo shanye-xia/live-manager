@@ -8,10 +8,15 @@ import '../../../../domain/models/live_photo.dart';
 
 /// 详情页 ViewModel：加载大图/视频/EXIF，并控制长按播放状态。
 class DetailViewModel extends ChangeNotifier {
-  DetailViewModel({required this.item, required this.repository});
+  DetailViewModel({
+    required this.item,
+    required this.repository,
+    this.thumbnailPath,
+  });
 
   final LivePhoto item;
   final LivePhotoRepository repository;
+  final String? thumbnailPath;
 
   bool _loading = true;
   String? _imagePath;
@@ -20,6 +25,7 @@ class DetailViewModel extends ChangeNotifier {
   String? _error;
   VideoPlayerController? _controller;
   bool _playing = false;
+  bool _fullImageReady = false;
 
   bool get loading => _loading;
   String? get imagePath => _imagePath;
@@ -28,29 +34,57 @@ class DetailViewModel extends ChangeNotifier {
   VideoPlayerController? get controller => _controller;
   bool get isPlaying => _playing;
   bool get videoReady => _controller?.value.isInitialized ?? false;
+  bool get fullImageReady => _fullImageReady;
 
   Future<void> init() async {
+    // 先展示已有缩略图，秒开详情页；原图/视频/EXIF 在后台加载。
+    final thumb = thumbnailPath;
+    if (thumb != null && thumb.isNotEmpty) {
+      _imagePath = thumb;
+      _loading = false;
+      notifyListeners();
+    }
+
+    await _loadFullContent();
+  }
+
+  Future<void> _loadFullContent() async {
+    String? fullPath;
+    String? videoPath;
+    Map<String, dynamic>? exif;
     try {
       final results = await Future.wait<Object?>([
         repository.fullImagePathFor(item),
         repository.videoFilePathFor(item),
         repository.exifFor(item),
       ]);
-      _imagePath = results[0] as String;
-      _videoPath = results[1] as String;
-      _exif = results[2] as Map<String, dynamic>?;
+      fullPath = results[0] as String;
+      videoPath = results[1] as String;
+      exif = results[2] as Map<String, dynamic>?;
     } catch (e) {
       _error = e.toString();
     }
+
+    if (fullPath != null && fullPath.isNotEmpty) {
+      _imagePath = fullPath;
+      _fullImageReady = true;
+    }
+    _videoPath = videoPath;
+    _exif = exif;
     _loading = false;
     notifyListeners();
 
     // 预加载视频控制器：长按时可立即播放（静默失败，不影响看图）。
-    final videoPath = _videoPath;
-    if (videoPath == null || videoPath.isEmpty) return;
+    if (_videoPath == null || _videoPath!.isEmpty) return;
     try {
-      final controller = VideoPlayerController.file(File(videoPath));
+      final controller = VideoPlayerController.file(File(_videoPath!));
       await controller.initialize();
+      // 视频播放到结尾时回到静态图，避免停在最后一帧
+      controller.addListener(() {
+        if (controller.value.isCompleted && _playing) {
+          stopPlayback();
+        }
+      });
       _controller = controller;
       notifyListeners();
     } catch (_) {

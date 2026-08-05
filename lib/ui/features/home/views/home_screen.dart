@@ -20,6 +20,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final HomeViewModel _viewModel;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _viewModel.dispose();
     super.dispose();
   }
@@ -77,23 +79,28 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, constraints) {
                 // 自适应列数：可用宽度越大，单格越大
                 final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
-                return GridView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(2),
-                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: maxExtent,
-                    mainAxisSpacing: 2,
-                    crossAxisSpacing: 2,
+                return Scrollbar(
+                  controller: _scrollController,
+                  thumbVisibility: true,
+                  child: GridView.builder(
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(2),
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: maxExtent,
+                      mainAxisSpacing: 2,
+                      crossAxisSpacing: 2,
+                    ),
+                    itemCount: _viewModel.items.length,
+                    itemBuilder: (context, index) {
+                      final item = _viewModel.items[index];
+                      return _LivePhotoTile(
+                        item: item,
+                        thumbnailFuture: _viewModel.thumbnailPathFor(item),
+                        onTap: () => _openDetail(item),
+                      );
+                    },
                   ),
-                  itemCount: _viewModel.items.length,
-                  itemBuilder: (context, index) {
-                    final item = _viewModel.items[index];
-                    return _LivePhotoTile(
-                      item: item,
-                      thumbnailFuture: _viewModel.thumbnailPathFor(item),
-                      onTap: () => _openDetail(item),
-                    );
-                  },
                 );
               },
             ),
@@ -109,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => DetailScreen(
           item: item,
           repository: widget.repository,
+          thumbnailPath: _viewModel.cachedThumbnailPathFor(item.imageId),
         ),
       ),
     );

@@ -15,6 +15,7 @@ class HomeViewModel extends ChangeNotifier {
   List<LivePhoto> _items = const [];
   String? _error;
   final Map<int, Future<String>> _thumbnailFutures = {};
+  final Map<int, String> _thumbnailPaths = {};
 
   HomeStatus get status => _status;
   List<LivePhoto> get items => _items;
@@ -44,7 +45,14 @@ class HomeViewModel extends ChangeNotifier {
   Future<String> thumbnailPathFor(LivePhoto item) {
     return _thumbnailFutures.putIfAbsent(
       item.imageId,
-      () => repository.thumbnailPathFor(item),
+      () async {
+        final path = await repository.thumbnailPathFor(item);
+        _thumbnailPaths[item.imageId] = path;
+        return path;
+      },
     );
   }
+
+  /// 已生成完成的缩略图路径（未完成则返回 null），用于详情页秒开。
+  String? cachedThumbnailPathFor(int imageId) => _thumbnailPaths[imageId];
 }

@@ -14,10 +14,12 @@ class DetailScreen extends StatefulWidget {
     super.key,
     required this.item,
     required this.repository,
+    this.thumbnailPath,
   });
 
   final LivePhoto item;
   final LivePhotoRepository repository;
+  final String? thumbnailPath;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -32,6 +34,7 @@ class _DetailScreenState extends State<DetailScreen> {
     _viewModel = DetailViewModel(
       item: widget.item,
       repository: widget.repository,
+      thumbnailPath: widget.thumbnailPath,
     )..init();
   }
 
@@ -107,6 +110,12 @@ class _DetailScreenState extends State<DetailScreen> {
                 aspectRatio: _viewModel.controller!.value.aspectRatio,
                 child: VideoPlayer(_viewModel.controller!),
               ),
+            ),
+          if (!_viewModel.fullImageReady)
+            const Positioned(
+              top: 12,
+              right: 12,
+              child: _LoadingOriginalChip(),
             ),
           Positioned(
             bottom: 16,
@@ -193,6 +202,39 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingOriginalChip extends StatelessWidget {
+  const _LoadingOriginalChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white70,
+            ),
+          ),
+          SizedBox(width: 6),
+          Text(
+            '加载原图…',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
