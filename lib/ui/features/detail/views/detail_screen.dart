@@ -16,6 +16,7 @@ class DetailScreen extends StatefulWidget {
     required this.initialIndex,
     required this.repository,
     required this.thumbnailLoader,
+    required this.onDelete,
     this.thumbnailPath,
   });
 
@@ -23,6 +24,7 @@ class DetailScreen extends StatefulWidget {
   final int initialIndex;
   final LivePhotoRepository repository;
   final Future<String> Function(PhotoItem item) thumbnailLoader;
+  final void Function(int imageId, bool videoOnly) onDelete;
   final String? thumbnailPath;
 
   @override
@@ -31,11 +33,13 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   late final PageController _pageController;
+  late List<PhotoItem> _items;
   bool _uiVisible = true;
 
   @override
   void initState() {
     super.initState();
+    _items = List.of(widget.items);
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -53,9 +57,9 @@ class _DetailScreenState extends State<DetailScreen> {
         children: [
           PageView.builder(
             controller: _pageController,
-            itemCount: widget.items.length,
+            itemCount: _items.length,
             itemBuilder: (context, index) {
-              final item = widget.items[index];
+              final item = _items[index];
               return _PhotoPage(
                 item: item,
                 repository: widget.repository,
@@ -63,15 +67,40 @@ class _DetailScreenState extends State<DetailScreen> {
                     index == widget.initialIndex ? widget.thumbnailPath : null,
                 thumbnailFuture: widget.thumbnailLoader(item),
                 uiVisible: _uiVisible,
-                positionText: '${index + 1} / ${widget.items.length}',
+                positionText: '${index + 1} / ${_items.length}',
                 onToggleUi: () => setState(() => _uiVisible = !_uiVisible),
-                onDeleted: () => Navigator.of(context).pop(true),
+                onDeleted: (videoOnly) => _handleDeleted(index, videoOnly),
               );
             },
           ),
         ],
       ),
     );
+  }
+
+  void _handleDeleted(int index, bool videoOnly) {
+    final item = _items[index];
+    widget.onDelete(item.imageId, videoOnly);
+    setState(() {
+      if (videoOnly) {
+        _items[index] = item.copyWith(
+          isLive: false,
+          videoId: null,
+          videoUri: null,
+          videoSize: null,
+          videoDurationMs: null,
+        );
+      } else {
+        _items.removeAt(index);
+      }
+    });
+    if (!videoOnly && _items.isNotEmpty) {
+      final target = index.clamp(0, _items.length - 1);
+      _pageController.jumpToPage(target);
+    }
+    if (_items.isEmpty) {
+      Navigator.of(context).maybePop();
+    }
   }
 }
 
@@ -94,7 +123,7 @@ class _PhotoPage extends StatefulWidget {
   final bool uiVisible;
   final String positionText;
   final VoidCallback onToggleUi;
-  final VoidCallback onDeleted;
+  final ValueChanged<bool> onDeleted;
 
   @override
   State<_PhotoPage> createState() => _PhotoPageState();
@@ -187,29 +216,6 @@ class _PhotoPageState extends State<_PhotoPage> {
                 child: VideoPlayer(_viewModel.controller!),
               ),
             ),
-          if (widget.item.isLive)
-            Positioned(
-              top: 12,
-              left: 12,
-              child: AnimatedOpacity(
-                opacity: widget.uiVisible ? 1 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: const _LiveBadgeSmall(),
-              ),
-            ),
-          if (!_viewModel.fullImageReady &&
-              _viewModel.fullImageError == null)
-            const Positioned(
-              top: 46,
-              left: 12,
-              child: _LoadingOriginalChip(),
-            ),
-          if (_viewModel.fullImageError != null)
-            const Positioned(
-              top: 46,
-              left: 12,
-              child: _LoadOriginalFailedChip(),
-            ),
         ],
       ),
     );
@@ -282,6 +288,28 @@ class _PhotoPageState extends State<_PhotoPage> {
                     ),
                   ),
                 ),
+                if (widget.item.isLive) ...[
+                  const SizedBox(height: 8),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: _LiveBadgeSmall(),
+                  ),
+                ],
+                if (!_viewModel.fullImageReady &&
+                    _viewModel.fullImageError == null) ...[
+                  const SizedBox(height: 6),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: _LoadingOriginalChip(),
+                  ),
+                ],
+                if (_viewModel.fullImageError != null) ...[
+                  const SizedBox(height: 6),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: _LoadOriginalFailedChip(),
+                  ),
+                ],
               ],
             ),
           ),
@@ -337,7 +365,7 @@ class _PhotoPageState extends State<_PhotoPage> {
     switch (outcome) {
       case DeleteOutcome.done:
         _showDeletedSnackBar();
-        widget.onDeleted();
+        widget.onDeleted(widget.item.isLive);
       case DeleteOutcome.needPermission:
         await _promptAllFilesAccess();
       case DeleteOutcome.failed:

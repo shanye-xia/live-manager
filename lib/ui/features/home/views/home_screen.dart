@@ -152,20 +152,22 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     final index = _viewModel.items
         .indexWhere((e) => e.imageId == item.imageId);
-    final deleted = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
         builder: (_) => DetailScreen(
           items: _viewModel.items,
           initialIndex: index < 0 ? 0 : index,
           repository: widget.repository,
           thumbnailLoader: _viewModel.thumbnailPathFor,
           thumbnailPath: thumbnailPath,
+          onDelete: (imageId, videoOnly) {
+            if (mounted) {
+              _viewModel.applyDelete(imageId, videoOnly: videoOnly);
+            }
+          },
         ),
       ),
     );
-    if (deleted == true && mounted) {
-      _viewModel.load();
-    }
   }
 
   void _openRecycleBin() {

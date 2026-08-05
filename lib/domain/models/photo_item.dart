@@ -28,6 +28,34 @@ class PhotoItem {
 
   int get totalSize => imageSize + (videoSize ?? 0);
 
+  PhotoItem copyWith({
+    int? imageId,
+    String? imageUri,
+    String? displayName,
+    DateTime? createTime,
+    int? imageSize,
+    String? relativePath,
+    int? videoId,
+    String? videoUri,
+    int? videoSize,
+    int? videoDurationMs,
+    bool? isLive,
+  }) {
+    return PhotoItem(
+      imageId: imageId ?? this.imageId,
+      imageUri: imageUri ?? this.imageUri,
+      displayName: displayName ?? this.displayName,
+      createTime: createTime ?? this.createTime,
+      imageSize: imageSize ?? this.imageSize,
+      relativePath: relativePath ?? this.relativePath,
+      videoId: videoId ?? this.videoId,
+      videoUri: videoUri ?? this.videoUri,
+      videoSize: videoSize ?? this.videoSize,
+      videoDurationMs: videoDurationMs ?? this.videoDurationMs,
+      isLive: isLive ?? this.isLive,
+    );
+  }
+
   factory PhotoItem.fromJson(Map<String, dynamic> json) {
     return PhotoItem(
       imageId: json['imageId'] as int,

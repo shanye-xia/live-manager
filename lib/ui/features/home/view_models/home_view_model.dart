@@ -62,4 +62,29 @@ class HomeViewModel extends ChangeNotifier {
       },
     );
   }
+
+  /// 原地应用删除结果（不重新扫描）：动态视频被删则取消 LIVE 标记，
+  /// 整张照片被删则从列表移除。保持滚动位置。
+  void applyDelete(int imageId, {required bool videoOnly}) {
+    if (videoOnly) {
+      _items = [
+        for (final item in _items)
+          if (item.imageId == imageId)
+            item.copyWith(
+              isLive: false,
+              videoId: null,
+              videoUri: null,
+              videoSize: null,
+              videoDurationMs: null,
+            )
+          else
+            item,
+      ];
+    } else {
+      _items = _items.where((item) => item.imageId != imageId).toList();
+    }
+    _thumbnailFutures.remove(imageId);
+    _thumbnailPaths.remove(imageId);
+    notifyListeners();
+  }
 }
