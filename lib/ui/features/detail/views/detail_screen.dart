@@ -128,7 +128,7 @@ class _DetailScreenState extends State<DetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           behavior: SnackBarBehavior.floating,
-          content: Text('已删除动态视频（可在系统回收站恢复）'),
+          content: Text('已删除动态视频'),
         ),
       );
       Navigator.of(context).pop(true);
@@ -250,7 +250,7 @@ class _DetailScreenState extends State<DetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             behavior: SnackBarBehavior.floating,
-            content: Text('已删除动态视频（可在系统回收站恢复）'),
+            content: Text('已删除动态视频'),
           ),
         );
         Navigator.of(context).pop(true);

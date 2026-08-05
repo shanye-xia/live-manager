@@ -5,7 +5,6 @@ import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.util.Log
 
 /**
  * 删除动态视频：
@@ -16,8 +15,6 @@ import android.util.Log
  * 系统确认框中点击确认才会发生。
  */
 object LivePhotoDeleter {
-
-    private const val TAG = "LiveManager"
 
     const val RESULT_SYSTEM = "system"
     const val RESULT_UNSUPPORTED = "unsupported"
@@ -43,16 +40,10 @@ object LivePhotoDeleter {
             return DeletePlan(mode = RESULT_UNSUPPORTED, requestId = null, intentSender = null)
         }
 
-        // 优先请求“移入系统回收站”（API 30+）；若设备不支持回收站，
-        // 再回退为普通删除请求。PendingIntent 由 MainActivity 启动，
-        // 实际删除必须由用户在系统确认框中确认。
+        // 直接删除请求（vivo 相册“最近删除”不收录系统回收站，
+        // 因此使用普通删除；实际删除由用户在系统确认框中确认）。
         val uri = Uri.parse(videoUri)
-        val pendingIntent = try {
-            MediaStore.createTrashRequest(resolver, listOf(uri), false)
-        } catch (e: Exception) {
-            Log.w(TAG, "系统回收站不可用，回退普通删除请求", e)
-            MediaStore.createDeleteRequest(resolver, listOf(uri))
-        }
+        val pendingIntent = MediaStore.createDeleteRequest(resolver, listOf(uri))
         return DeletePlan(
             mode = RESULT_SYSTEM,
             requestId = requestId,
