@@ -56,17 +56,19 @@ class _DetailScreenState extends State<DetailScreen> {
       body: ListenableBuilder(
         listenable: _viewModel,
         builder: (context, _) {
-          return Stack(
-            children: [
-              Positioned.fill(child: _buildViewer()),
-              SafeArea(child: _buildTopBar()),
-              Positioned(
-                bottom: 18,
-                left: 0,
-                right: 0,
-                child: _buildBottomStrip(context),
-              ),
-            ],
+          return SizedBox.expand(
+            child: Stack(
+              children: [
+                Positioned.fill(child: _buildViewer()),
+                SafeArea(child: _buildTopBar()),
+                Positioned(
+                  bottom: 18,
+                  left: 0,
+                  right: 0,
+                  child: _buildBottomStrip(context),
+                ),
+              ],
+            ),
           );
         },
       ),
