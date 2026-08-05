@@ -53,6 +53,4 @@ class HomeViewModel extends ChangeNotifier {
     );
   }
 
-  /// 已生成完成的缩略图路径（未完成则返回 null），用于详情页秒开。
-  String? cachedThumbnailPathFor(int imageId) => _thumbnailPaths[imageId];
 }

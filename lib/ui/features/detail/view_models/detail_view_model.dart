@@ -12,11 +12,13 @@ class DetailViewModel extends ChangeNotifier {
     required this.item,
     required this.repository,
     this.thumbnailPath,
+    this.thumbnailFuture,
   });
 
   final LivePhoto item;
   final LivePhotoRepository repository;
   final String? thumbnailPath;
+  final Future<String>? thumbnailFuture;
 
   bool _loading = true;
   String? _imagePath;
@@ -26,6 +28,7 @@ class DetailViewModel extends ChangeNotifier {
   VideoPlayerController? _controller;
   bool _playing = false;
   bool _fullImageReady = false;
+  String? _fullImageError;
 
   bool get loading => _loading;
   String? get imagePath => _imagePath;
@@ -35,17 +38,28 @@ class DetailViewModel extends ChangeNotifier {
   bool get isPlaying => _playing;
   bool get videoReady => _controller?.value.isInitialized ?? false;
   bool get fullImageReady => _fullImageReady;
+  String? get fullImageError => _fullImageError;
 
   Future<void> init() async {
-    // 先展示已有缩略图，秒开详情页；原图/视频/EXIF 在后台加载。
+    // 第一帧必有图：已有缩略图直接显示，否则等缩略图 Future（比原图快得多）。
     final thumb = thumbnailPath;
     if (thumb != null && thumb.isNotEmpty) {
-      _imagePath = thumb;
-      _loading = false;
-      notifyListeners();
+      _showThumb(thumb);
+    } else if (thumbnailFuture != null) {
+      thumbnailFuture!
+          .then((path) {
+            if (!_fullImageReady && path.isNotEmpty) _showThumb(path);
+          })
+          .catchError((_) {});
     }
 
     await _loadFullContent();
+  }
+
+  void _showThumb(String path) {
+    _imagePath = path;
+    _loading = false;
+    notifyListeners();
   }
 
   Future<void> _loadFullContent() async {
@@ -53,16 +67,20 @@ class DetailViewModel extends ChangeNotifier {
     String? videoPath;
     Map<String, dynamic>? exif;
     try {
-      final results = await Future.wait<Object?>([
-        repository.fullImagePathFor(item),
-        repository.videoFilePathFor(item),
-        repository.exifFor(item),
-      ]);
-      fullPath = results[0] as String;
-      videoPath = results[1] as String;
-      exif = results[2] as Map<String, dynamic>?;
+      fullPath = await repository.fullImagePathFor(item);
     } catch (e) {
       _error = e.toString();
+      _fullImageError = e.toString();
+    }
+    try {
+      videoPath = await repository.videoFilePathFor(item);
+    } catch (_) {
+      // 视频不可用不影响看图与 EXIF
+    }
+    try {
+      exif = await repository.exifFor(item);
+    } catch (_) {
+      // EXIF 缺失仅影响信息展示
     }
 
     if (fullPath != null && fullPath.isNotEmpty) {

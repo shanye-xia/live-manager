@@ -79,28 +79,41 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, constraints) {
                 // 自适应列数：可用宽度越大，单格越大
                 final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
-                return Scrollbar(
-                  controller: _scrollController,
-                  thumbVisibility: true,
-                  child: GridView.builder(
-                    controller: _scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(2),
-                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: maxExtent,
-                      mainAxisSpacing: 2,
-                      crossAxisSpacing: 2,
+                return Stack(
+                  children: [
+                    GridView.builder(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(2),
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: maxExtent,
+                        mainAxisSpacing: 2,
+                        crossAxisSpacing: 2,
+                      ),
+                      itemCount: _viewModel.items.length,
+                      itemBuilder: (context, index) {
+                        final item = _viewModel.items[index];
+                        return _LivePhotoTile(
+                          item: item,
+                          thumbnailFuture: _viewModel.thumbnailPathFor(item),
+                          onTap: () => _openDetail(item),
+                        );
+                      },
                     ),
-                    itemCount: _viewModel.items.length,
-                    itemBuilder: (context, index) {
-                      final item = _viewModel.items[index];
-                      return _LivePhotoTile(
-                        item: item,
-                        thumbnailFuture: _viewModel.thumbnailPathFor(item),
-                        onTap: () => _openDetail(item),
-                      );
-                    },
-                  ),
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: LayoutBuilder(
+                        builder: (context, railConstraints) {
+                          return _GridScrollRail(
+                            controller: _scrollController,
+                            trackHeight: railConstraints.maxHeight,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -110,13 +123,134 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openDetail(LivePhoto item) {
+  Future<void> _openDetail(LivePhoto item) async {
+    // 进详情前先确保缩略图就绪（预生成后几乎瞬时），保证第一帧有图
+    String? thumbnailPath;
+    try {
+      thumbnailPath = await _viewModel.thumbnailPathFor(item);
+    } catch (_) {
+      // 缩略图失败不阻塞进入详情
+    }
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => DetailScreen(
           item: item,
           repository: widget.repository,
-          thumbnailPath: _viewModel.cachedThumbnailPathFor(item.imageId),
+          thumbnailPath: thumbnailPath,
+          thumbnailFuture: _viewModel.thumbnailPathFor(item),
+        ),
+      ),
+    );
+  }
+}
+
+/// 系统相册式可拖动竖向滚动条：整条轨道可点按/拖动跳转。
+class _GridScrollRail extends StatefulWidget {
+  const _GridScrollRail({
+    required this.controller,
+    required this.trackHeight,
+  });
+
+  final ScrollController controller;
+  final double trackHeight;
+
+  @override
+  State<_GridScrollRail> createState() => _GridScrollRailState();
+}
+
+class _GridScrollRailState extends State<_GridScrollRail> {
+  static const double _railWidth = 26;
+  static const double _thumbMinHeight = 40;
+
+  double _maxExtent = 0;
+  double _thumbHeight = _thumbMinHeight;
+  double _thumbTop = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() {
+    final controller = widget.controller;
+    if (!mounted || !controller.hasClients) return;
+    final position = controller.position;
+    final max = position.maxScrollExtent;
+    final height = widget.trackHeight;
+    final thumbHeight = max <= 0
+        ? _thumbMinHeight
+        : (height * height / (max + height)).clamp(_thumbMinHeight, height);
+    final thumbTop = max <= 0
+        ? 0.0
+        : (position.pixels / max) * (height - thumbHeight);
+    setState(() {
+      _maxExtent = max;
+      _thumbHeight = thumbHeight;
+      _thumbTop = thumbTop;
+    });
+  }
+
+  void _jumpTo(Offset localPosition) {
+    final controller = widget.controller;
+    if (!controller.hasClients || _maxExtent <= 0) return;
+    final fraction =
+        (localPosition.dy / widget.trackHeight).clamp(0.0, 1.0);
+    controller.jumpTo(fraction * _maxExtent);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _update();
+    if (_maxExtent <= 0) return const SizedBox.shrink();
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: (details) => _jumpTo(details.localPosition),
+      onTapDown: (details) => _jumpTo(details.localPosition),
+      child: SizedBox(
+        width: _railWidth,
+        child: Stack(
+          children: [
+            // 半透明轨道
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            // 可拖动滑块
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 120),
+              top: _thumbTop,
+              left: 0,
+              right: 0,
+              height: _thumbHeight,
+              child: Center(
+                child: Container(
+                  width: 5,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

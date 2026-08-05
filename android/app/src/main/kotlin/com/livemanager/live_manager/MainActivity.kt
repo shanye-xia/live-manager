@@ -159,7 +159,7 @@ class MainActivity : FlutterActivity() {
                     size
                 )
                 runOnUiThread { result.success(path) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 runOnUiThread { result.error("thumb_failed", e.message, null) }
             }
         }.start()
@@ -173,7 +173,7 @@ class MainActivity : FlutterActivity() {
             try {
                 val exif = LivePhotoExif.read(applicationContext, imageUri)
                 runOnUiThread { result.success(exif) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 runOnUiThread { result.error("exif_failed", e.message, null) }
             }
         }.start()
@@ -197,7 +197,7 @@ class MainActivity : FlutterActivity() {
                     LivePhotoThumbnails.fullImage(applicationContext, id, uri)
                 }
                 runOnUiThread { result.success(path) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 runOnUiThread { result.error("file_failed", e.message, null) }
             }
         }.start()

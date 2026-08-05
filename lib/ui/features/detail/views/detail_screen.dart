@@ -15,11 +15,13 @@ class DetailScreen extends StatefulWidget {
     required this.item,
     required this.repository,
     this.thumbnailPath,
+    this.thumbnailFuture,
   });
 
   final LivePhoto item;
   final LivePhotoRepository repository;
   final String? thumbnailPath;
+  final Future<String>? thumbnailFuture;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -35,6 +37,7 @@ class _DetailScreenState extends State<DetailScreen> {
       item: widget.item,
       repository: widget.repository,
       thumbnailPath: widget.thumbnailPath,
+      thumbnailFuture: widget.thumbnailFuture,
     )..init();
   }
 
@@ -111,11 +114,18 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: VideoPlayer(_viewModel.controller!),
               ),
             ),
-          if (!_viewModel.fullImageReady)
+          if (!_viewModel.fullImageReady &&
+              _viewModel.fullImageError == null)
             const Positioned(
               top: 12,
               right: 12,
               child: _LoadingOriginalChip(),
+            ),
+          if (_viewModel.fullImageError != null)
+            const Positioned(
+              top: 12,
+              right: 12,
+              child: _LoadOriginalFailedChip(),
             ),
           Positioned(
             bottom: 16,
@@ -235,6 +245,25 @@ class _LoadingOriginalChip extends StatelessWidget {
             style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LoadOriginalFailedChip extends StatelessWidget {
+  const _LoadOriginalFailedChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Text(
+        '原图加载失败',
+        style: TextStyle(color: Colors.white70, fontSize: 12),
       ),
     );
   }
