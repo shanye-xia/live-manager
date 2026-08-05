@@ -1,10 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/trash_entry.dart';
 import '../../../core/formatters.dart';
+import 'trash_detail_screen.dart';
 
-/// 应用回收站：恢复 / 彻底删除。
+/// 应用回收站：缩略图列表，点击查看大图并可恢复/彻底删除。
 class RecycleBinScreen extends StatefulWidget {
   const RecycleBinScreen({super.key, required this.repository});
 
@@ -17,7 +20,7 @@ class RecycleBinScreen extends StatefulWidget {
 class _RecycleBinScreenState extends State<RecycleBinScreen> {
   List<TrashEntry>? _entries;
   String? _error;
-  final Set<String> _busy = {};
+  final Map<String, Future<String>> _previews = {};
 
   @override
   void initState() {
@@ -40,52 +43,38 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
     }
   }
 
-  Future<void> _restore(TrashEntry entry) async {
-    setState(() => _busy.add(entry.id));
-    final ok = await widget.repository.restoreTrash(entry.id);
-    if (!mounted) return;
-    setState(() => _busy.remove(entry.id));
-    if (ok) {
-      _showSnack('已恢复：${entry.originalFileName}');
-      _load();
-    } else {
-      _showSnack('恢复失败');
-    }
+  /// 原地更新：从列表移除该条目（不重新加载、不重置滚动）。
+  void _removeEntry(String id) {
+    final entries = _entries;
+    if (entries == null) return;
+    setState(() {
+      _entries = entries.where((e) => e.id != id).toList();
+    });
   }
 
-  Future<void> _confirmPermanentDelete(TrashEntry entry) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('彻底删除？'),
-        content: const Text('此操作不可恢复，文件将从回收站永久删除。'),
-        actions: [
-          FilledButton.tonal(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('彻底删除'),
-          ),
-        ],
+  Future<String> _previewPath(TrashEntry entry) {
+    return _previews.putIfAbsent(
+      entry.id,
+      () => widget.repository.trashPreviewPath(entry, size: 256),
+    );
+  }
+
+  Future<void> _openDetail(TrashEntry entry) async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => TrashDetailScreen(
+          entry: entry,
+          repository: widget.repository,
+        ),
       ),
     );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _busy.add(entry.id));
-    final ok = await widget.repository.permanentDeleteTrash(entry.id);
-    if (!mounted) return;
-    setState(() => _busy.remove(entry.id));
-    if (ok) {
+    if (!mounted || result == null) return;
+    if (result == 'restored') {
+      _removeEntry(entry.id);
+      _showSnack('已恢复：${entry.originalFileName}');
+    } else if (result == 'deleted') {
+      _removeEntry(entry.id);
       _showSnack('已彻底删除');
-      _load();
-    } else {
-      _showSnack('删除失败');
     }
   }
 
@@ -145,13 +134,10 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
         itemCount: entries.length,
         itemBuilder: (context, index) {
           final entry = entries[index];
-          final isBusy = _busy.contains(entry.id);
           return ListTile(
-            leading: Icon(
-              entry.mediaType == 'video'
-                  ? Icons.movie_outlined
-                  : Icons.photo_outlined,
-              color: Theme.of(context).colorScheme.primary,
+            leading: _TrashThumbnail(
+              future: _previewPath(entry),
+              mediaType: entry.mediaType,
             ),
             title: Text(
               entry.originalFileName,
@@ -161,24 +147,49 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
             subtitle: Text(
               '${formatDateTime(entry.trashedAt)} · ${formatBytes(entry.size)}',
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: '恢复',
-                  onPressed: isBusy ? null : () => _restore(entry),
-                  icon: const Icon(Icons.restore, color: Colors.green),
-                ),
-                IconButton(
-                  tooltip: '彻底删除',
-                  onPressed: isBusy ? null : () => _confirmPermanentDelete(entry),
-                  icon: const Icon(Icons.delete_forever_outlined,
-                      color: Colors.redAccent),
-                ),
-              ],
-            ),
+            onTap: () => _openDetail(entry),
           );
         },
+      ),
+    );
+  }
+}
+
+class _TrashThumbnail extends StatelessWidget {
+  const _TrashThumbnail({required this.future, required this.mediaType});
+
+  final Future<String> future;
+  final String mediaType;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: 56,
+        height: 56,
+        child: FutureBuilder<String>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+              return Image.file(
+                File(snapshot.data!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _icon(context),
+              );
+            }
+            return _icon(context);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _icon(BuildContext context) {
+    return Container(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Icon(
+        mediaType == 'video' ? Icons.movie_outlined : Icons.photo_outlined,
       ),
     );
   }

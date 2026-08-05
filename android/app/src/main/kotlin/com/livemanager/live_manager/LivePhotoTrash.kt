@@ -2,6 +2,9 @@ package com.livemanager.live_manager
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -208,6 +211,62 @@ object LivePhotoTrash {
     fun permanentDelete(context: Context, entry: TrashEntry) {
         trashFile(context, entry).delete()
         removeEntry(context, entry.id)
+    }
+
+    /**
+     * 生成回收站条目的预览图（图片解码 / 视频取帧），缓存到应用目录。
+     */
+    fun preview(context: Context, entry: TrashEntry, sizePx: Int): String {
+        val source = trashFile(context, entry)
+        if (!source.exists()) throw IOException("回收站文件不存在")
+        val dir = File(context.filesDir, "trash_preview").apply { mkdirs() }
+        val cache = File(dir, "${entry.id}_$sizePx.jpg")
+        if (cache.exists() && cache.length() > 0) return cache.absolutePath
+
+        val bitmap = if (entry.mediaType == "video") {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(source.absolutePath)
+                retriever.getFrameAtTime(
+                    0,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                ) ?: throw IOException("无法提取视频帧")
+            } finally {
+                retriever.release()
+            }
+        } else {
+            decodeScaledFile(source, sizePx)
+        }
+
+        val longest = maxOf(bitmap.width, bitmap.height)
+        val scaled = if (longest > sizePx) {
+            val scale = sizePx.toFloat() / longest
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt().coerceAtLeast(1),
+                (bitmap.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else {
+            bitmap
+        }
+        FileOutputStream(cache).use { out ->
+            scaled.compress(Bitmap.CompressFormat.JPEG, 88, out)
+        }
+        return cache.absolutePath
+    }
+
+    private fun decodeScaledFile(file: File, target: Int): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        var sample = 1
+        val longest = maxOf(bounds.outWidth, bounds.outHeight)
+        while (longest / sample > target) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: throw IOException("解码失败")
     }
 
     @Synchronized

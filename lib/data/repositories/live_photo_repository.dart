@@ -43,6 +43,9 @@ abstract class LivePhotoRepository {
   /// 回收站条目。
   Future<List<TrashEntry>> trashEntries();
 
+  /// 回收站条目的预览图路径。
+  Future<String> trashPreviewPath(TrashEntry entry, {int size = 512});
+
   /// 恢复回收站条目。
   Future<bool> restoreTrash(String id);
 
@@ -129,6 +132,11 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   Future<List<TrashEntry>> trashEntries() async {
     final maps = await _service.listTrash();
     return maps.map(TrashEntry.fromJson).toList();
+  }
+
+  @override
+  Future<String> trashPreviewPath(TrashEntry entry, {int size = 512}) {
+    return _service.getTrashPreview(id: entry.id, size: size);
   }
 
   @override

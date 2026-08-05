@@ -123,6 +123,16 @@ class LivePhotoPlatformService {
         .toList();
   }
 
+  /// 回收站条目的预览图（图片解码/视频取帧），返回本地缓存路径。
+  Future<String> getTrashPreview({
+    required String id,
+    int size = 512,
+  }) async {
+    final path = await _channel
+        .invokeMethod<String>('getTrashPreview', {'id': id, 'size': size});
+    return path ?? '';
+  }
+
   /// 从回收站恢复。
   Future<bool> restoreTrash(String id) async {
     return await _channel.invokeMethod<bool>('restoreTrash', {'id': id}) ??

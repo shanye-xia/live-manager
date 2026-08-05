@@ -82,6 +82,7 @@ class MainActivity : FlutterActivity() {
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
             "openAllFilesAccessSettings" -> openAllFilesAccessSettings(result)
             "listTrash" -> listTrashAsync(result)
+            "getTrashPreview" -> trashPreviewAsync(call, result)
             "restoreTrash" -> trashActionAsync(call, result, restore = true)
             "permanentDeleteTrash" -> trashActionAsync(call, result, restore = false)
             else -> result.notImplemented()
@@ -278,6 +279,23 @@ class MainActivity : FlutterActivity() {
                     LivePhotoTrash.permanentDelete(applicationContext, entry)
                 }
                 runOnUiThread { result.success(true) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("trash_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun trashPreviewAsync(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("id")
+            ?: return result.error("bad_args", "id 缺失", null)
+        val size = (call.argument<Number>("size") ?: 512).toInt()
+        Thread {
+            try {
+                val entry = LivePhotoTrash.listTrash(applicationContext)
+                    .firstOrNull { it.id == id }
+                    ?: throw IllegalStateException("回收站条目不存在")
+                val path = LivePhotoTrash.preview(applicationContext, entry, size)
+                runOnUiThread { result.success(path) }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("trash_failed", e.message, null) }
             }
