@@ -3,12 +3,11 @@ package com.livemanager.live_manager
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
-import android.util.Log
+import android.os.Environment
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -22,11 +21,9 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
-    private var pendingTrashEntry: LivePhotoTrash.TrashEntry? = null
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
-        private const val REQUEST_DELETE = 1002
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -53,38 +50,13 @@ class MainActivity : FlutterActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            REQUEST_PERMISSIONS -> {
-                val granted = requiredPermissions()
-                    .all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-                pendingPermissionResult?.success(
-                    mapOf("granted" to granted, "pending" to false)
-                )
-                pendingPermissionResult = null
-                eventSink?.success(
-                    mapOf(
-                        "type" to "permissionsChanged",
-                        "granted" to granted
-                    )
-                )
-            }
-
-            REQUEST_DELETE -> {
-                val ok = resultCode == Activity.RESULT_OK
-                if (!ok) {
-                    // 用户拒绝系统确认：撤销已复制到回收站的文件
-                    pendingTrashEntry?.let {
-                        LivePhotoTrash.permanentDelete(applicationContext, it)
-                    }
-                }
-                pendingTrashEntry = null
-                eventSink?.success(
-                    mapOf(
-                        "type" to "deleteResult",
-                        "success" to ok
-                    )
-                )
-            }
+        if (requestCode == REQUEST_PERMISSIONS) {
+            val granted = requiredPermissions()
+                .all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+            pendingPermissionResult?.success(
+                mapOf("granted" to granted, "pending" to false)
+            )
+            pendingPermissionResult = null
         }
     }
 
@@ -107,6 +79,8 @@ class MainActivity : FlutterActivity() {
             "getVideoFile" -> fileAsync(call, result, isVideo = true)
             "getExif" -> exifAsync(call, result)
             "moveToTrash" -> moveToTrashAsync(call, result)
+            "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
+            "openAllFilesAccessSettings" -> openAllFilesAccessSettings(result)
             "listTrash" -> listTrashAsync(result)
             "restoreTrash" -> trashActionAsync(call, result, restore = true)
             "permanentDeleteTrash" -> trashActionAsync(call, result, restore = false)
@@ -139,6 +113,24 @@ class MainActivity : FlutterActivity() {
         }
         pendingPermissionResult = result
         requestPermissions(requiredPermissions(), REQUEST_PERMISSIONS)
+    }
+
+    private fun hasAllFilesAccess(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+            Environment.isExternalStorageManager()
+
+    private fun openAllFilesAccessSettings(result: MethodChannel.Result) {
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (e: Exception) {
+            startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+        }
+        result.success(true)
     }
 
     // ---- 只读：扫描 / 缩略图 / EXIF / 原图 / 视频 ----
@@ -229,7 +221,7 @@ class MainActivity : FlutterActivity() {
 
         Thread {
             try {
-                val (entry, needsConsent) = LivePhotoTrash.moveToTrash(
+                val (entry, status) = LivePhotoTrash.moveToTrash(
                     applicationContext,
                     uri,
                     fileName,
@@ -238,41 +230,15 @@ class MainActivity : FlutterActivity() {
                     dateTaken
                 )
                 runOnUiThread {
-                    if (needsConsent) {
-                        // 需要系统确认删除原文件
-                        pendingTrashEntry = entry
-                        try {
-                            val sender = MediaStore.createDeleteRequest(
-                                contentResolver,
-                                listOf(Uri.parse(uri))
-                            ).intentSender
-                            startIntentSenderForResult(
-                                sender,
-                                REQUEST_DELETE,
-                                null,
-                                0,
-                                0,
-                                0
-                            )
-                            result.success(
-                                mapOf(
-                                    "entry" to entry.toMap(),
-                                    "needsConsent" to true
-                                )
-                            )
-                        } catch (e: Throwable) {
-                            // 系统确认无法弹出：撤销已复制文件
-                            LivePhotoTrash.permanentDelete(applicationContext, entry)
-                            Log.e("LiveManager", "系统确认删除失败", e)
-                            result.error("trash_failed", "系统确认删除失败", null)
-                        }
-                    } else {
+                    if (status == LivePhotoTrash.STATUS_OK) {
                         result.success(
                             mapOf(
-                                "entry" to entry.toMap(),
-                                "needsConsent" to false
+                                "status" to status,
+                                "entry" to entry?.toMap()
                             )
                         )
+                    } else {
+                        result.success(mapOf("status" to status))
                     }
                 }
             } catch (e: Throwable) {

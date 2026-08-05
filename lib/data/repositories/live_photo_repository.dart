@@ -28,11 +28,17 @@ abstract class LivePhotoRepository {
   Future<Map<String, dynamic>> exifFor(PhotoItem item);
 
   /// 把动态视频（或非 Live 照片）移入应用回收站。
-  /// 返回 {entry, needsConsent}。
+  /// 返回 {status, entry?}；status 为 ok / need_permission / failed。
   Future<Map<String, dynamic>> moveToTrash(
     PhotoItem item, {
     required bool deleteVideo,
   });
+
+  /// 是否已授予“所有文件访问”权限。
+  Future<bool> hasAllFilesAccess();
+
+  /// 打开“所有文件访问”设置页。
+  Future<void> openAllFilesAccessSettings();
 
   /// 回收站条目。
   Future<List<TrashEntry>> trashEntries();
@@ -111,6 +117,13 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
       dateTaken: item.createTime.millisecondsSinceEpoch,
     );
   }
+
+  @override
+  Future<bool> hasAllFilesAccess() => _service.hasAllFilesAccess();
+
+  @override
+  Future<void> openAllFilesAccessSettings() =>
+      _service.openAllFilesAccessSettings();
 
   @override
   Future<List<TrashEntry>> trashEntries() async {

@@ -105,6 +105,16 @@ class LivePhotoPlatformService {
     return result ?? const {};
   }
 
+  /// 是否已授予“所有文件访问”权限。
+  Future<bool> hasAllFilesAccess() async {
+    return await _channel.invokeMethod<bool>('hasAllFilesAccess') ?? false;
+  }
+
+  /// 打开“所有文件访问”设置页。
+  Future<void> openAllFilesAccessSettings() async {
+    await _channel.invokeMethod<void>('openAllFilesAccessSettings');
+  }
+
   /// 回收站条目列表。
   Future<List<Map<String, dynamic>>> listTrash() async {
     final result = await _channel.invokeListMethod<dynamic>('listTrash');

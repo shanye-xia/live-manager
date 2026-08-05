@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +5,9 @@ import 'package:video_player/video_player.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/photo_item.dart';
+
+/// 删除操作结果。
+enum DeleteOutcome { done, needPermission, failed }
 
 /// 详情页 ViewModel：加载大图/视频/EXIF，并处理删除（移入应用回收站）。
 class DetailViewModel extends ChangeNotifier {
@@ -30,8 +32,6 @@ class DetailViewModel extends ChangeNotifier {
   bool _playing = false;
   bool _fullImageReady = false;
   String? _fullImageError;
-  StreamSubscription<Map<String, dynamic>>? _deleteSub;
-  Completer<bool>? _deleteCompleter;
   bool _busy = false;
 
   bool get loading => _loading;
@@ -45,7 +45,6 @@ class DetailViewModel extends ChangeNotifier {
   String? get fullImageError => _fullImageError;
 
   Future<void> init() async {
-    // 第一帧必有图：已有缩略图直接显示，否则等缩略图 Future。
     final thumb = thumbnailPath;
     if (thumb != null && thumb.isNotEmpty) {
       _showThumb(thumb);
@@ -98,7 +97,6 @@ class DetailViewModel extends ChangeNotifier {
     _loading = false;
     notifyListeners();
 
-    // 预加载视频控制器：长按时可立即播放（仅 Live 照片）。
     if (_videoPath == null || _videoPath!.isEmpty) return;
     try {
       final controller = VideoPlayerController.file(File(_videoPath!));
@@ -133,43 +131,27 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   /// 把动态视频（或非 Live 照片）移入应用回收站。
-  /// 返回 true 表示已移入回收站，false 表示取消或失败。
-  Future<bool> startDelete() async {
-    if (_busy) return false;
+  Future<DeleteOutcome> startDelete() async {
+    if (_busy) return DeleteOutcome.failed;
     _busy = true;
     try {
-      // 先建立事件监听（系统确认结果通过事件回传）
-      final completer = Completer<bool>();
-      _deleteCompleter = completer;
-      _deleteSub ??= repository.events().listen((event) {
-        if (event['type'] == 'deleteResult') {
-          final target = _deleteCompleter;
-          if (target != null && !target.isCompleted) {
-            target.complete(event['success'] == true);
-          }
-        }
-      });
-
       final plan = await repository
           .moveToTrash(item, deleteVideo: item.isLive)
           .timeout(const Duration(seconds: 30));
-      if (plan['needsConsent'] == true) {
-        final ok = await completer.future
-            .timeout(const Duration(minutes: 2), onTimeout: () => false);
-        return ok;
-      }
-      return true;
+      return switch (plan['status']) {
+        'ok' => DeleteOutcome.done,
+        'need_permission' => DeleteOutcome.needPermission,
+        _ => DeleteOutcome.failed,
+      };
     } catch (_) {
-      return false;
+      return DeleteOutcome.failed;
     } finally {
-      _deleteCompleter = null;
       _busy = false;
     }
   }
 
   @override
   void dispose() {
-    _deleteSub?.cancel();
     _controller?.dispose();
     super.dispose();
   }

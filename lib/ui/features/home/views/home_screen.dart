@@ -150,10 +150,13 @@ class _HomeScreenState extends State<HomeScreen> {
       // 缩略图失败不阻塞进入详情
     }
     if (!mounted) return;
+    final index = _viewModel.items
+        .indexWhere((e) => e.imageId == item.imageId);
     final deleted = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         builder: (_) => DetailScreen(
-          item: item,
+          items: _viewModel.items,
+          initialIndex: index < 0 ? 0 : index,
           repository: widget.repository,
           thumbnailPath: thumbnailPath,
           thumbnailFuture: _viewModel.thumbnailPathFor(item),
@@ -309,83 +312,113 @@ class _SummaryBarState extends State<_SummaryBar> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => setState(() => _expanded = !_expanded),
-        child: AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          child: Container(
-            padding: EdgeInsets.fromLTRB(16, _expanded ? 12 : 8, 16, 8),
-            child: _expanded ? _buildExpanded(scheme, textTheme) : _buildCollapsed(scheme, textTheme),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: _expanded ? 12 : 8,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildColumn(
+                      scheme,
+                      icon: Icons.photo_library_outlined,
+                      label: '全部照片',
+                      color: scheme.primary,
+                      countText: '${widget.count} 张',
+                      detailTexts: [
+                        formatBytes(widget.totalBytes),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: _expanded ? 56 : 32,
+                    color: scheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                  Expanded(
+                    child: _buildColumn(
+                      scheme,
+                      icon: Icons.motion_photos_on_outlined,
+                      label: 'Live',
+                      color: Colors.redAccent,
+                      countText: '${widget.liveCount} 张',
+                      detailTexts: [
+                        '图片 ${formatBytes(widget.liveImageBytes)}',
+                        '视频 ${formatBytes(widget.liveVideoBytes)}',
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                    color: scheme.outline,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildCollapsed(ColorScheme scheme, TextTheme textTheme) {
-    return Row(
-      children: [
-        Icon(Icons.photo_library_outlined, size: 17, color: scheme.primary),
-        const SizedBox(width: 8),
-        Text('共 ${widget.count} 张照片', style: textTheme.titleSmall),
-        const Spacer(),
-        Icon(Icons.expand_more, size: 20, color: scheme.outline),
-      ],
-    );
-  }
-
-  Widget _buildExpanded(ColorScheme scheme, TextTheme textTheme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _summaryRow(
-          textTheme,
-          scheme,
-          '全部照片',
-          '${widget.count} 张 · ${formatBytes(widget.totalBytes)}',
-        ),
-        const SizedBox(height: 6),
-        _summaryRow(
-          textTheme,
-          scheme,
-          'Live',
-          '${widget.liveCount} 张 · 图片 ${formatBytes(widget.liveImageBytes)}'
-              ' · 视频 ${formatBytes(widget.liveVideoBytes)}',
-          live: true,
-        ),
-        const SizedBox(height: 4),
-        Center(
-          child: Icon(Icons.expand_less, size: 20, color: scheme.outline),
-        ),
-      ],
-    );
-  }
-
-  Widget _summaryRow(
-    TextTheme textTheme,
-    ColorScheme scheme,
-    String label,
-    String value, {
-    bool live = false,
+  Widget _buildColumn(
+    ColorScheme scheme, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required String countText,
+    required List<String> detailTexts,
   }) {
-    return Row(
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label,
-          style: textTheme.labelMedium
-              ?.copyWith(color: scheme.outline),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: textTheme.labelSmall
+                  ?.copyWith(color: scheme.outline),
+            ),
+          ],
         ),
-        const Spacer(),
-        Text(
-          value,
-          style: textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: live ? Colors.redAccent : null,
-          ),
+        const SizedBox(height: 2),
+        Text(countText, style: textTheme.titleSmall),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: _expanded
+              ? Column(
+                  children: [
+                    for (final text in detailTexts) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        text,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: color.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              : const SizedBox.shrink(),
         ),
       ],
     );

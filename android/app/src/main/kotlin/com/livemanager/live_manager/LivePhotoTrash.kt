@@ -3,6 +3,8 @@ package com.livemanager.live_manager
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import org.json.JSONArray
@@ -21,6 +23,10 @@ object LivePhotoTrash {
 
     private const val TAG = "LiveManager"
     private const val META_FILE = "trash_meta.json"
+
+    const val STATUS_OK = "ok"
+    const val STATUS_NEED_PERMISSION = "need_permission"
+    const val STATUS_FAILED = "failed"
 
     data class TrashEntry(
         val id: String,
@@ -96,7 +102,8 @@ object LivePhotoTrash {
     }
 
     /**
-     * 复制到应用回收站。返回条目与是否需要系统确认删除原文件。
+     * 复制到应用回收站并删除原文件。
+     * 返回 (条目, 状态)；状态为 need_permission 时未做任何操作。
      */
     fun moveToTrash(
         context: Context,
@@ -105,7 +112,13 @@ object LivePhotoTrash {
         relativePath: String,
         mediaType: String,
         dateTaken: Long
-    ): Pair<TrashEntry, Boolean> {
+    ): Pair<TrashEntry?, String> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            !Environment.isExternalStorageManager()
+        ) {
+            return null to STATUS_NEED_PERMISSION
+        }
+
         val uri = Uri.parse(uriString)
         val id = UUID.randomUUID().toString()
         val trashFile = File(trashDir(context), "${id}_$fileName")
@@ -114,12 +127,15 @@ object LivePhotoTrash {
             FileOutputStream(trashFile).use { out -> input.copyTo(out) }
         } ?: throw IOException("无法读取原文件: $uri")
 
-        val needsConsent = try {
+        val deleted = try {
             context.contentResolver.delete(uri, null, null)
-            false
-        } catch (e: SecurityException) {
-            Log.w(TAG, "直接删除需系统确认", e)
-            true
+        } catch (e: Exception) {
+            Log.e(TAG, "删除原文件失败", e)
+            -1
+        }
+        if (deleted < 0) {
+            trashFile.delete()
+            return null to STATUS_FAILED
         }
 
         val entry = TrashEntry(
@@ -134,7 +150,7 @@ object LivePhotoTrash {
         )
         val entries = readEntries(context).apply { add(entry) }
         writeEntries(context, entries)
-        return entry to needsConsent
+        return entry to STATUS_OK
     }
 
     fun listTrash(context: Context): List<TrashEntry> =

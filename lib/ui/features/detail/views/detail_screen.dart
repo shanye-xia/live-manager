@@ -8,17 +8,19 @@ import '../../../../domain/models/photo_item.dart';
 import '../../../core/formatters.dart';
 import '../view_models/detail_view_model.dart';
 
-/// 详情页：相册风全屏大图 + 长按播放 + 信息/删除。
+/// 详情页：相册式分页浏览（左右滑动切换）+ 长按播放 + 单击隐藏 UI。
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
     super.key,
-    required this.item,
+    required this.items,
+    required this.initialIndex,
     required this.repository,
     this.thumbnailPath,
     this.thumbnailFuture,
   });
 
-  final PhotoItem item;
+  final List<PhotoItem> items;
+  final int initialIndex;
   final LivePhotoRepository repository;
   final String? thumbnailPath;
   final Future<String>? thumbnailFuture;
@@ -28,6 +30,80 @@ class DetailScreen extends StatefulWidget {
 }
 
 class _DetailScreenState extends State<DetailScreen> {
+  late final PageController _pageController;
+  bool _uiVisible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.items.length,
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+              return _PhotoPage(
+                item: item,
+                repository: widget.repository,
+                thumbnailPath: index == widget.initialIndex
+                    ? widget.thumbnailPath
+                    : null,
+                thumbnailFuture: index == widget.initialIndex
+                    ? widget.thumbnailFuture
+                    : null,
+                uiVisible: _uiVisible,
+                positionText: '${index + 1} / ${widget.items.length}',
+                onToggleUi: () => setState(() => _uiVisible = !_uiVisible),
+                onDeleted: () => Navigator.of(context).pop(true),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PhotoPage extends StatefulWidget {
+  const _PhotoPage({
+    required this.item,
+    required this.repository,
+    this.thumbnailPath,
+    this.thumbnailFuture,
+    required this.uiVisible,
+    required this.positionText,
+    required this.onToggleUi,
+    required this.onDeleted,
+  });
+
+  final PhotoItem item;
+  final LivePhotoRepository repository;
+  final String? thumbnailPath;
+  final Future<String>? thumbnailFuture;
+  final bool uiVisible;
+  final String positionText;
+  final VoidCallback onToggleUi;
+  final VoidCallback onDeleted;
+
+  @override
+  State<_PhotoPage> createState() => _PhotoPageState();
+}
+
+class _PhotoPageState extends State<_PhotoPage> {
   late final DetailViewModel _viewModel;
 
   @override
@@ -49,119 +125,26 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: ListenableBuilder(
-        listenable: _viewModel,
-        builder: (context, _) {
-          return SizedBox.expand(
-            child: Stack(
-              children: [
-                Positioned.fill(child: _buildViewer()),
-                SafeArea(child: _buildTopBar()),
-                Positioned(
-                  bottom: 18,
-                  left: 0,
-                  right: 0,
-                  child: _buildBottomStrip(context),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                color: Colors.white70),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildViewer(),
+        AnimatedOpacity(
+          opacity: widget.uiVisible ? 1 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: IgnorePointer(
+            ignoring: !widget.uiVisible,
+            child: _buildOverlay(context),
           ),
-          Expanded(
-            child: Text(
-              widget.item.displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70, fontSize: 15),
-            ),
-          ),
-          IconButton(
-            tooltip: '详情',
-            onPressed: _showInfoSheet,
-            icon: const Icon(
-              Icons.info_outline_rounded,
-              color: Colors.white70,
-            ),
-          ),
-          IconButton(
-            tooltip: widget.item.isLive ? '删除动态视频' : '删除照片',
-            onPressed: _confirmDelete,
-            icon: Icon(
-              Icons.delete_outline_rounded,
-              color: Colors.redAccent,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomStrip(BuildContext context) {
-    final item = widget.item;
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(20),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '照片 ${formatBytes(item.imageSize)} · '
-              '${item.isLive ? '动态 ${formatBytes(item.videoSize ?? 0)} · ' : ''}'
-              '总计 ${formatBytes(item.totalSize)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            if (item.isLive) ...[
-              const SizedBox(height: 2),
-              const Text(
-                '长按图片播放动态效果',
-                style: TextStyle(color: Colors.white38, fontSize: 10),
-              ),
-            ],
-          ],
-        ),
-      ),
+      ],
     );
   }
 
   Widget _buildViewer() {
-    if (_viewModel.loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
-      );
-    }
-    final path = _viewModel.imagePath;
-    if (path == null || path.isEmpty) {
-      return Center(
-        child: Text(
-          '图片加载失败\n${_viewModel.error ?? ''}',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white70),
-        ),
-      );
-    }
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onTap: widget.onToggleUi,
       onLongPressStart: widget.item.isLive
           ? (_) => _viewModel.startPlayback()
           : null,
@@ -172,16 +155,29 @@ class _DetailScreenState extends State<DetailScreen> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Center(
-            child: Image.file(
-              File(path),
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => const Text(
-                '无法显示图片',
-                style: TextStyle(color: Colors.white70),
+          if (_viewModel.loading)
+            const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            )
+          else if (_viewModel.imagePath == null)
+            Center(
+              child: Text(
+                '图片加载失败\n${_viewModel.error ?? ''}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            )
+          else
+            Center(
+              child: Image.file(
+                File(_viewModel.imagePath!),
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => const Text(
+                  '无法显示图片',
+                  style: TextStyle(color: Colors.white70),
+                ),
               ),
             ),
-          ),
           if (_viewModel.isPlaying && _viewModel.videoReady)
             Center(
               child: AspectRatio(
@@ -207,7 +203,95 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  /// 自定义确认弹窗：删除（红底）/ 取消（灰底），返回/点外部等同取消。
+  Widget _buildOverlay(BuildContext context) {
+    final item = widget.item;
+    return Stack(
+      children: [
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+            child: Column(
+              children: [
+                _GlassPanel(
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                            color: Colors.white70),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                              ),
+                            ),
+                            Text(
+                              widget.positionText,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '详情',
+                        onPressed: _showInfoSheet,
+                        icon: const Icon(Icons.info_outline_rounded,
+                            color: Colors.white70),
+                      ),
+                      IconButton(
+                        tooltip: item.isLive ? '删除动态视频' : '删除照片',
+                        onPressed: _confirmDelete,
+                        icon: const Icon(Icons.delete_outline_rounded,
+                            color: Colors.redAccent),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _GlassPanel(
+                  child: Text(
+                    '照片 ${formatBytes(item.imageSize)}'
+                    '${item.isLive ? ' · 动态 ${formatBytes(item.videoSize ?? 0)}' : ''}'
+                    ' · 总计 ${formatBytes(item.totalSize)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (item.isLive)
+          Positioned(
+            bottom: 18,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: _GlassPanel(
+                child: const Text(
+                  '长按图片播放动态效果',
+                  style: TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Future<void> _confirmDelete() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -236,16 +320,45 @@ class _DetailScreenState extends State<DetailScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    final success = await _viewModel.startDelete();
+    final outcome = await _viewModel.startDelete();
     if (!mounted) return;
-    if (success) {
-      _showDeletedSnackBar();
-      Navigator.of(context).pop(true);
+    switch (outcome) {
+      case DeleteOutcome.done:
+        _showDeletedSnackBar();
+        widget.onDeleted();
+      case DeleteOutcome.needPermission:
+        await _promptAllFilesAccess();
+      case DeleteOutcome.failed:
+        break; // 失败不弹提示
     }
-    // 取消/失败不弹任何提示
   }
 
-  /// “已删除”提示：点击即消失，多次删除快速覆盖。
+  Future<void> _promptAllFilesAccess() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('需要文件访问权限'),
+        content: const Text(
+          'Android 11+ 删除文件需要“所有文件访问”权限（只需开启一次），'
+          '开启后删除将不再弹出系统确认框。',
+        ),
+        actions: [
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('去设置'),
+          ),
+        ],
+      ),
+    );
+    if (go == true) {
+      await _viewModel.repository.openAllFilesAccessSettings();
+    }
+  }
+
   void _showDeletedSnackBar() {
     final messenger = ScaffoldMessenger.of(context);
     messenger.removeCurrentSnackBar();
@@ -277,7 +390,26 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 }
 
-/// 详情面板：文件信息 + EXIF + 删除（从底部弹出）。
+/// 半透明灰色圆角面板，保证文字在图片上清晰可读。
+class _GlassPanel extends StatelessWidget {
+  const _GlassPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// 详情面板：文件信息 + EXIF（从底部弹出）。
 class _InfoSheet extends StatelessWidget {
   const _InfoSheet({required this.viewModel, required this.item});
 
