@@ -26,9 +26,13 @@ class HomeViewModel extends ChangeNotifier {
 
   int get liveCount => _items.where((item) => item.isLive).length;
 
-  int get liveTotalBytes => _items
+  int get liveImageTotalBytes => _items
       .where((item) => item.isLive)
-      .fold<int>(0, (sum, item) => sum + item.totalSize);
+      .fold<int>(0, (sum, item) => sum + item.imageSize);
+
+  int get liveVideoTotalBytes => _items
+      .where((item) => item.isLive)
+      .fold<int>(0, (sum, item) => sum + (item.videoSize ?? 0));
 
   Future<void> load() async {
     _status = HomeStatus.loading;

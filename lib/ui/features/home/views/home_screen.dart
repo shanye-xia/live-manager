@@ -74,61 +74,71 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGrid() {
-    return Column(
-      children: [
-        _SummaryBar(
-          count: _viewModel.items.length,
-          liveCount: _viewModel.liveCount,
-          totalBytes: _viewModel.totalBytes,
-          liveTotalBytes: _viewModel.liveTotalBytes,
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _viewModel.load,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
-                return Stack(
-                  children: [
-                    GridView.builder(
+    return RefreshIndicator(
+      onRefresh: _viewModel.load,
+      child: SizedBox.expand(
+        child: Stack(
+          children: [
+            LayoutBuilder(
+                  builder: (context, constraints) {
+                    final maxExtent =
+                        constraints.maxWidth < 400 ? 120.0 : 160.0;
+                    return CustomScrollView(
                       controller: _scrollController,
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(2),
-                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: maxExtent,
-                        mainAxisSpacing: 2,
-                        crossAxisSpacing: 2,
-                      ),
-                      itemCount: _viewModel.items.length,
-                      itemBuilder: (context, index) {
-                        final item = _viewModel.items[index];
-                        return _PhotoTile(
-                          item: item,
-                          thumbnailFuture: _viewModel.thumbnailPathFor(item),
-                          onTap: () => _openDetail(item),
-                        );
-                      },
-                    ),
-                    Positioned(
-                      top: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: LayoutBuilder(
-                        builder: (context, railConstraints) {
-                          return _GridScrollRail(
-                            controller: _scrollController,
-                            trackHeight: railConstraints.maxHeight,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              },
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: _SummaryBar(
+                            count: _viewModel.items.length,
+                            liveCount: _viewModel.liveCount,
+                            totalBytes: _viewModel.totalBytes,
+                            liveImageBytes: _viewModel.liveImageTotalBytes,
+                            liveVideoBytes: _viewModel.liveVideoTotalBytes,
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.all(2),
+                          sliver: SliverGrid(
+                            gridDelegate:
+                                SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: maxExtent,
+                              mainAxisSpacing: 2,
+                              crossAxisSpacing: 2,
+                            ),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                final item = _viewModel.items[index];
+                                return _PhotoTile(
+                                  item: item,
+                                  thumbnailFuture:
+                                      _viewModel.thumbnailPathFor(item),
+                                  onTap: () => _openDetail(item),
+                                );
+                              },
+                              childCount: _viewModel.items.length,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
             ),
-          ),
+            Positioned(
+              top: 0,
+              right: 0,
+              bottom: 0,
+              child: LayoutBuilder(
+                builder: (context, railConstraints) {
+                  return _GridScrollRail(
+                    controller: _scrollController,
+                    trackHeight: railConstraints.maxHeight,
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -274,99 +284,108 @@ class _GridScrollRailState extends State<_GridScrollRail> {
   }
 }
 
-class _SummaryBar extends StatelessWidget {
+class _SummaryBar extends StatefulWidget {
   const _SummaryBar({
     required this.count,
     required this.liveCount,
     required this.totalBytes,
-    required this.liveTotalBytes,
+    required this.liveImageBytes,
+    required this.liveVideoBytes,
   });
 
   final int count;
   final int liveCount;
   final int totalBytes;
-  final int liveTotalBytes;
+  final int liveImageBytes;
+  final int liveVideoBytes;
+
+  @override
+  State<_SummaryBar> createState() => _SummaryBarState();
+}
+
+class _SummaryBarState extends State<_SummaryBar> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SummaryTile(
-              icon: Icons.photo_library_outlined,
-              label: '全部照片',
-              countText: '$count 张',
-              sizeText: formatBytes(totalBytes),
-              color: scheme.primary,
-            ),
+    final textTheme = Theme.of(context).textTheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _expanded = !_expanded),
+        child: AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: Container(
+            padding: EdgeInsets.fromLTRB(16, _expanded ? 12 : 8, 16, 8),
+            child: _expanded ? _buildExpanded(scheme, textTheme) : _buildCollapsed(scheme, textTheme),
           ),
-          Container(
-            width: 1,
-            height: 34,
-            color: scheme.outlineVariant.withValues(alpha: 0.5),
-          ),
-          Expanded(
-            child: _SummaryTile(
-              icon: Icons.motion_photos_on_outlined,
-              label: 'Live',
-              countText: '$liveCount 张',
-              sizeText: formatBytes(liveTotalBytes),
-              color: Colors.redAccent,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
-}
 
-class _SummaryTile extends StatelessWidget {
-  const _SummaryTile({
-    required this.icon,
-    required this.label,
-    required this.countText,
-    required this.sizeText,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final String countText;
-  final String sizeText;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+  Widget _buildCollapsed(ColorScheme scheme, TextTheme textTheme) {
+    return Row(
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: textTheme.labelSmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.outline),
-            ),
-          ],
+        Icon(Icons.photo_library_outlined, size: 17, color: scheme.primary),
+        const SizedBox(width: 8),
+        Text('共 ${widget.count} 张照片', style: textTheme.titleSmall),
+        const Spacer(),
+        Icon(Icons.expand_more, size: 20, color: scheme.outline),
+      ],
+    );
+  }
+
+  Widget _buildExpanded(ColorScheme scheme, TextTheme textTheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _summaryRow(
+          textTheme,
+          scheme,
+          '全部照片',
+          '${widget.count} 张 · ${formatBytes(widget.totalBytes)}',
         ),
-        const SizedBox(height: 2),
-        Text(countText, style: textTheme.titleSmall),
+        const SizedBox(height: 6),
+        _summaryRow(
+          textTheme,
+          scheme,
+          'Live',
+          '${widget.liveCount} 张 · 图片 ${formatBytes(widget.liveImageBytes)}'
+              ' · 视频 ${formatBytes(widget.liveVideoBytes)}',
+          live: true,
+        ),
+        const SizedBox(height: 4),
+        Center(
+          child: Icon(Icons.expand_less, size: 20, color: scheme.outline),
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryRow(
+    TextTheme textTheme,
+    ColorScheme scheme,
+    String label,
+    String value, {
+    bool live = false,
+  }) {
+    return Row(
+      children: [
         Text(
-          sizeText,
-          style: textTheme.bodySmall
-              ?.copyWith(color: Theme.of(context).colorScheme.outline),
+          label,
+          style: textTheme.labelMedium
+              ?.copyWith(color: scheme.outline),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: live ? Colors.redAccent : null,
+          ),
         ),
       ],
     );

@@ -80,10 +80,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Live Manager'), findsOneWidget);
+    expect(find.text('共 2 张照片'), findsOneWidget);
+
+    await tester.tap(find.text('共 2 张照片'));
+    await tester.pumpAndSettle();
+
     expect(find.text('全部照片'), findsOneWidget);
-    expect(find.text('2 张'), findsOneWidget);
-    expect(find.text('1 张'), findsOneWidget);
     expect(find.text('Live'), findsOneWidget);
+    expect(find.textContaining('2 张'), findsOneWidget);
+    expect(find.textContaining('1 张'), findsOneWidget);
     expect(find.text('LIVE'), findsOneWidget);
   });
 }
