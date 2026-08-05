@@ -29,9 +29,9 @@ class LivePhotoPlatformService {
     return result ?? const {};
   }
 
-  /// 扫描并返回所有配对的 Live Photo（只读）。
-  Future<List<Map<String, dynamic>>> scanLivePhotos() async {
-    final result = await _channel.invokeListMethod<dynamic>('scanLivePhotos');
+  /// 扫描并返回全部照片（含 Live 标记）。
+  Future<List<Map<String, dynamic>>> scanAllPhotos() async {
+    final result = await _channel.invokeListMethod<dynamic>('scanAllPhotos');
     return (result ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
@@ -84,14 +84,46 @@ class LivePhotoPlatformService {
     return result ?? const {};
   }
 
-  /// 删除动态视频（进入系统回收站，需用户在系统弹窗确认）。
-  /// 安全约束：仅在用户明确要求时调用。
-  Future<Map<String, dynamic>> deleteVideo(String videoUri) async {
+  /// 把文件移入应用回收站。返回 {entry, needsConsent}。
+  Future<Map<String, dynamic>> moveToTrash({
+    required String uri,
+    required String fileName,
+    required String relativePath,
+    required String mediaType,
+    required int dateTaken,
+  }) async {
     final result = await _channel.invokeMapMethod<String, dynamic>(
-      'deleteVideo',
-      {'videoUri': videoUri},
+      'moveToTrash',
+      {
+        'uri': uri,
+        'fileName': fileName,
+        'relativePath': relativePath,
+        'mediaType': mediaType,
+        'dateTaken': dateTaken,
+      },
     );
     return result ?? const {};
+  }
+
+  /// 回收站条目列表。
+  Future<List<Map<String, dynamic>>> listTrash() async {
+    final result = await _channel.invokeListMethod<dynamic>('listTrash');
+    return (result ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  /// 从回收站恢复。
+  Future<bool> restoreTrash(String id) async {
+    return await _channel.invokeMethod<bool>('restoreTrash', {'id': id}) ??
+        false;
+  }
+
+  /// 彻底删除回收站条目。
+  Future<bool> permanentDeleteTrash(String id) async {
+    return await _channel
+            .invokeMethod<bool>('permanentDeleteTrash', {'id': id}) ??
+        false;
   }
 
   /// 原生事件流（权限变化、删除结果等）。

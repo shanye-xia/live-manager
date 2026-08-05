@@ -3,12 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
-import '../../../../domain/models/live_photo.dart';
+import '../../../../domain/models/photo_item.dart';
 import '../../../core/formatters.dart';
 import '../../detail/views/detail_screen.dart';
+import '../../trash/views/recycle_bin_screen.dart';
 import '../view_models/home_view_model.dart';
 
-/// 首页：Live 图片网格（Phase 3 首版）。
+/// 首页：全部照片网格（Live 图带 LIVE 角标）。
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.repository});
 
@@ -41,6 +42,13 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Live Manager'),
         centerTitle: false,
+        actions: [
+          IconButton(
+            tooltip: '回收站',
+            onPressed: _openRecycleBin,
+            icon: const Icon(Icons.restore_from_trash_outlined),
+          ),
+        ],
       ),
       body: ListenableBuilder(
         listenable: _viewModel,
@@ -70,6 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _SummaryBar(
           count: _viewModel.items.length,
+          liveCount: _viewModel.liveCount,
           totalBytes: _viewModel.totalBytes,
         ),
         Expanded(
@@ -77,7 +86,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onRefresh: _viewModel.load,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // 自适应列数：可用宽度越大，单格越大
                 final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
                 return Stack(
                   children: [
@@ -93,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       itemCount: _viewModel.items.length,
                       itemBuilder: (context, index) {
                         final item = _viewModel.items[index];
-                        return _LivePhotoTile(
+                        return _PhotoTile(
                           item: item,
                           thumbnailFuture: _viewModel.thumbnailPathFor(item),
                           onTap: () => _openDetail(item),
@@ -123,8 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _openDetail(LivePhoto item) async {
-    // 进详情前先确保缩略图就绪（预生成后几乎瞬时），保证第一帧有图
+  Future<void> _openDetail(PhotoItem item) async {
     String? thumbnailPath;
     try {
       thumbnailPath = await _viewModel.thumbnailPathFor(item);
@@ -145,6 +152,14 @@ class _HomeScreenState extends State<HomeScreen> {
     if (deleted == true && mounted) {
       _viewModel.load();
     }
+  }
+
+  void _openRecycleBin() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecycleBinScreen(repository: widget.repository),
+      ),
+    );
   }
 }
 
@@ -222,7 +237,6 @@ class _GridScrollRailState extends State<_GridScrollRail> {
         width: _railWidth,
         child: Stack(
           children: [
-            // 半透明轨道
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
@@ -233,7 +247,6 @@ class _GridScrollRailState extends State<_GridScrollRail> {
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
-            // 可拖动滑块
             AnimatedPositioned(
               duration: const Duration(milliseconds: 120),
               top: _thumbTop,
@@ -261,9 +274,14 @@ class _GridScrollRailState extends State<_GridScrollRail> {
 }
 
 class _SummaryBar extends StatelessWidget {
-  const _SummaryBar({required this.count, required this.totalBytes});
+  const _SummaryBar({
+    required this.count,
+    required this.liveCount,
+    required this.totalBytes,
+  });
 
   final int count;
+  final int liveCount;
   final int totalBytes;
 
   @override
@@ -276,7 +294,7 @@ class _SummaryBar extends StatelessWidget {
           Icon(Icons.photo_library_outlined,
               size: 20, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 8),
-          Text('共 $count 张 Live 图片', style: textTheme.titleSmall),
+          Text('共 $count 张照片 · $liveCount 张 Live', style: textTheme.titleSmall),
           const Spacer(),
           Text(
             '占用 ${formatBytes(totalBytes)}',
@@ -289,14 +307,14 @@ class _SummaryBar extends StatelessWidget {
   }
 }
 
-class _LivePhotoTile extends StatelessWidget {
-  const _LivePhotoTile({
+class _PhotoTile extends StatelessWidget {
+  const _PhotoTile({
     required this.item,
     required this.thumbnailFuture,
     required this.onTap,
   });
 
-  final LivePhoto item;
+  final PhotoItem item;
   final Future<String> thumbnailFuture;
   final VoidCallback onTap;
 
@@ -320,12 +338,44 @@ class _LivePhotoTile extends StatelessWidget {
               return const _TilePlaceholder();
             },
           ),
-          const Positioned(
-            top: 6,
-            left: 6,
-            child: _LiveBadge(),
-          ),
+          if (item.isLive)
+            const Positioned(
+              top: 6,
+              left: 6,
+              child: _LiveBadge(),
+            ),
+          if (item.isLive)
+            Positioned(
+              bottom: 6,
+              right: 6,
+              child: _VideoSizeBadge(size: item.videoSize ?? 0),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _VideoSizeBadge extends StatelessWidget {
+  const _VideoSizeBadge({required this.size});
+
+  final int size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        '动态 ${formatBytes(size)}',
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 9,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
@@ -390,7 +440,7 @@ class _ErrorView extends StatelessWidget {
             const Icon(Icons.perm_media_outlined,
                 size: 56, color: Colors.orangeAccent),
             const SizedBox(height: 16),
-            Text('无法扫描 Live 图片',
+            Text('无法扫描照片',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
@@ -424,7 +474,7 @@ class _EmptyView extends StatelessWidget {
         children: [
           const Icon(Icons.photo_outlined, size: 56, color: Colors.grey),
           const SizedBox(height: 16),
-          Text('未发现 Live 图片', style: Theme.of(context).textTheme.titleMedium),
+          Text('未发现照片', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 24),
           OutlinedButton.icon(
             onPressed: onRefresh,

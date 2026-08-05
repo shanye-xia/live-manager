@@ -5,7 +5,10 @@ import android.app.Activity
 import android.content.Intent
 import android.content.IntentSender
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -18,8 +21,8 @@ class MainActivity : FlutterActivity() {
     private val eventsChannelName = "com.livemanager/live_photo_events"
 
     private var eventSink: EventChannel.EventSink? = null
-    private var deleteRequestId = 0L
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingTrashEntry: LivePhotoTrash.TrashEntry? = null
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
@@ -67,11 +70,18 @@ class MainActivity : FlutterActivity() {
             }
 
             REQUEST_DELETE -> {
+                val ok = resultCode == Activity.RESULT_OK
+                if (!ok) {
+                    // 用户拒绝系统确认：撤销已复制到回收站的文件
+                    pendingTrashEntry?.let {
+                        LivePhotoTrash.permanentDelete(applicationContext, it)
+                    }
+                }
+                pendingTrashEntry = null
                 eventSink?.success(
                     mapOf(
                         "type" to "deleteResult",
-                        "requestId" to deleteRequestId,
-                        "success" to (resultCode == Activity.RESULT_OK)
+                        "success" to ok
                     )
                 )
             }
@@ -91,12 +101,15 @@ class MainActivity : FlutterActivity() {
 
             "requestPermissions" -> handleRequestPermissions(result)
             "permissionStatus" -> result.success(permissionStatus())
-            "scanLivePhotos" -> scanAsync(result)
+            "scanAllPhotos" -> scanAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
             "getFullImage" -> fileAsync(call, result, isVideo = false)
             "getVideoFile" -> fileAsync(call, result, isVideo = true)
             "getExif" -> exifAsync(call, result)
-            "deleteVideo" -> handleDelete(call, result)
+            "moveToTrash" -> moveToTrashAsync(call, result)
+            "listTrash" -> listTrashAsync(result)
+            "restoreTrash" -> trashActionAsync(call, result, restore = true)
+            "permanentDeleteTrash" -> trashActionAsync(call, result, restore = false)
             else -> result.notImplemented()
         }
     }
@@ -128,7 +141,7 @@ class MainActivity : FlutterActivity() {
         requestPermissions(requiredPermissions(), REQUEST_PERMISSIONS)
     }
 
-    // ---- 只读：扫描 / 缩略图 / EXIF ----
+    // ---- 只读：扫描 / 缩略图 / EXIF / 原图 / 视频 ----
 
     private fun scanAsync(result: MethodChannel.Result) {
         if (permissionStatus()["granted"] == false) {
@@ -136,7 +149,7 @@ class MainActivity : FlutterActivity() {
             return
         }
         Thread {
-            val items = LivePhotoScanner.scan(applicationContext)
+            val items = LivePhotoScanner.scanAll(applicationContext)
             runOnUiThread {
                 result.success(items.map { it.toMap() })
             }
@@ -203,44 +216,105 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
-    // ---- 删除（仅生成系统确认请求，实际删除需用户在系统弹窗确认） ----
+    // ---- 应用回收站 ----
 
-    private fun handleDelete(call: MethodCall, result: MethodChannel.Result) {
-        val videoUri = call.argument<String>("videoUri")
-            ?: return result.error("bad_args", "videoUri 缺失", null)
+    private fun moveToTrashAsync(call: MethodCall, result: MethodChannel.Result) {
+        val uri = call.argument<String>("uri")
+            ?: return result.error("bad_args", "uri 缺失", null)
+        val fileName = call.argument<String>("fileName")
+            ?: return result.error("bad_args", "fileName 缺失", null)
+        val relativePath = call.argument<String>("relativePath") ?: ""
+        val mediaType = call.argument<String>("mediaType") ?: "video"
+        val dateTaken = (call.argument<Number>("dateTaken"))?.toLong() ?: 0L
 
-        try {
-            deleteRequestId += 1
-            val requestId = deleteRequestId
-            val plan = LivePhotoDeleter.buildPlan(
-                contentResolver,
-                videoUri,
-                requestId
-            )
-            when (plan.mode) {
-                LivePhotoDeleter.RESULT_SYSTEM -> {
-                    val sender: IntentSender = plan.intentSender
-                        ?: return result.error("delete_failed", "系统请求创建失败", null)
-                    startIntentSenderForResult(
-                        sender,
-                        REQUEST_DELETE,
-                        null,
-                        0,
-                        0,
-                        0
-                    )
-                    result.success(mapOf("mode" to plan.mode, "requestId" to requestId))
-                }
-
-                else -> result.error(
-                    "unsupported",
-                    "当前系统版本不支持回收站删除（需 Android 11+）",
-                    null
+        Thread {
+            try {
+                val (entry, needsConsent) = LivePhotoTrash.moveToTrash(
+                    applicationContext,
+                    uri,
+                    fileName,
+                    relativePath,
+                    mediaType,
+                    dateTaken
                 )
+                runOnUiThread {
+                    if (needsConsent) {
+                        // 需要系统确认删除原文件
+                        pendingTrashEntry = entry
+                        try {
+                            val sender = MediaStore.createDeleteRequest(
+                                contentResolver,
+                                listOf(Uri.parse(uri))
+                            ).intentSender
+                            startIntentSenderForResult(
+                                sender,
+                                REQUEST_DELETE,
+                                null,
+                                0,
+                                0,
+                                0
+                            )
+                            result.success(
+                                mapOf(
+                                    "entry" to entry.toMap(),
+                                    "needsConsent" to true
+                                )
+                            )
+                        } catch (e: Throwable) {
+                            // 系统确认无法弹出：撤销已复制文件
+                            LivePhotoTrash.permanentDelete(applicationContext, entry)
+                            Log.e("LiveManager", "系统确认删除失败", e)
+                            result.error("trash_failed", "系统确认删除失败", null)
+                        }
+                    } else {
+                        result.success(
+                            mapOf(
+                                "entry" to entry.toMap(),
+                                "needsConsent" to false
+                            )
+                        )
+                    }
+                }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("trash_failed", e.message, null) }
             }
-        } catch (e: Throwable) {
-            android.util.Log.e("LiveManager", "发起删除失败", e)
-            result.error("delete_failed", "发起删除失败: ${e.message}", null)
-        }
+        }.start()
+    }
+
+    private fun listTrashAsync(result: MethodChannel.Result) {
+        Thread {
+            try {
+                val entries = LivePhotoTrash.listTrash(applicationContext)
+                runOnUiThread {
+                    result.success(entries.map { it.toMap() })
+                }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("trash_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun trashActionAsync(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        restore: Boolean
+    ) {
+        val id = call.argument<String>("id")
+            ?: return result.error("bad_args", "id 缺失", null)
+        Thread {
+            try {
+                val entry = LivePhotoTrash.listTrash(applicationContext)
+                    .firstOrNull { it.id == id }
+                    ?: throw IllegalStateException("回收站条目不存在")
+                if (restore) {
+                    LivePhotoTrash.restore(applicationContext, entry)
+                } else {
+                    LivePhotoTrash.permanentDelete(applicationContext, entry)
+                }
+                runOnUiThread { result.success(true) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("trash_failed", e.message, null) }
+            }
+        }.start()
     }
 }

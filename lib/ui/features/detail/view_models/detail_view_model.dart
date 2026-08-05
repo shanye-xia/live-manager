@@ -5,9 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
-import '../../../../domain/models/live_photo.dart';
+import '../../../../domain/models/photo_item.dart';
 
-/// 详情页 ViewModel：加载大图/视频/EXIF，并控制长按播放状态。
+/// 详情页 ViewModel：加载大图/视频/EXIF，并处理删除（移入应用回收站）。
 class DetailViewModel extends ChangeNotifier {
   DetailViewModel({
     required this.item,
@@ -16,7 +16,7 @@ class DetailViewModel extends ChangeNotifier {
     this.thumbnailFuture,
   });
 
-  final LivePhoto item;
+  final PhotoItem item;
   final LivePhotoRepository repository;
   final String? thumbnailPath;
   final Future<String>? thumbnailFuture;
@@ -32,7 +32,7 @@ class DetailViewModel extends ChangeNotifier {
   String? _fullImageError;
   StreamSubscription<Map<String, dynamic>>? _deleteSub;
   Completer<bool>? _deleteCompleter;
-  bool _deleting = false;
+  bool _busy = false;
 
   bool get loading => _loading;
   String? get imagePath => _imagePath;
@@ -43,10 +43,9 @@ class DetailViewModel extends ChangeNotifier {
   bool get videoReady => _controller?.value.isInitialized ?? false;
   bool get fullImageReady => _fullImageReady;
   String? get fullImageError => _fullImageError;
-  bool get deleting => _deleting;
 
   Future<void> init() async {
-    // 第一帧必有图：已有缩略图直接显示，否则等缩略图 Future（比原图快得多）。
+    // 第一帧必有图：已有缩略图直接显示，否则等缩略图 Future。
     final thumb = thumbnailPath;
     if (thumb != null && thumb.isNotEmpty) {
       _showThumb(thumb);
@@ -77,10 +76,12 @@ class DetailViewModel extends ChangeNotifier {
       _error = e.toString();
       _fullImageError = e.toString();
     }
-    try {
-      videoPath = await repository.videoFilePathFor(item);
-    } catch (_) {
-      // 视频不可用不影响看图与 EXIF
+    if (item.isLive) {
+      try {
+        videoPath = await repository.videoFilePathFor(item);
+      } catch (_) {
+        // 视频不可用不影响看图与 EXIF
+      }
     }
     try {
       exif = await repository.exifFor(item);
@@ -97,12 +98,11 @@ class DetailViewModel extends ChangeNotifier {
     _loading = false;
     notifyListeners();
 
-    // 预加载视频控制器：长按时可立即播放（静默失败，不影响看图）。
+    // 预加载视频控制器：长按时可立即播放（仅 Live 照片）。
     if (_videoPath == null || _videoPath!.isEmpty) return;
     try {
       final controller = VideoPlayerController.file(File(_videoPath!));
       await controller.initialize();
-      // 视频播放到结尾时回到静态图，避免停在最后一帧
       controller.addListener(() {
         if (controller.value.isCompleted && _playing) {
           stopPlayback();
@@ -132,45 +132,39 @@ class DetailViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 发起删除：先出系统回收站确认框，等待用户确认结果后返回。
-  /// 返回 true 表示已删除（进入回收站），false 表示取消或失败。
+  /// 把动态视频（或非 Live 照片）移入应用回收站。
+  /// 返回 true 表示已移入回收站，false 表示取消或失败。
   Future<bool> startDelete() async {
-    if (_deleting) return false;
-    _deleting = true;
-    notifyListeners();
-
-    // 先建立事件监听，再发起删除，避免结果事件先于监听到达而丢失
-    final completer = Completer<bool>();
-    _deleteCompleter = completer;
-    _deleteSub ??= repository.events().listen((event) {
-      if (event['type'] == 'deleteResult') {
-        final target = _deleteCompleter;
-        if (target != null && !target.isCompleted) {
-          target.complete(event['success'] == true);
-        }
-      }
-    });
-
+    if (_busy) return false;
+    _busy = true;
     try {
-      final plan = await repository
-          .deleteVideo(item)
-          .timeout(const Duration(seconds: 30));
-      if (plan['mode'] == 'unsupported') {
-        return _finishDelete(false);
-      }
-      final success = await completer.future
-          .timeout(const Duration(minutes: 2), onTimeout: () => false);
-      return _finishDelete(success);
-    } catch (_) {
-      return _finishDelete(false);
-    }
-  }
+      // 先建立事件监听（系统确认结果通过事件回传）
+      final completer = Completer<bool>();
+      _deleteCompleter = completer;
+      _deleteSub ??= repository.events().listen((event) {
+        if (event['type'] == 'deleteResult') {
+          final target = _deleteCompleter;
+          if (target != null && !target.isCompleted) {
+            target.complete(event['success'] == true);
+          }
+        }
+      });
 
-  bool _finishDelete(bool success) {
-    _deleteCompleter = null;
-    _deleting = false;
-    notifyListeners();
-    return success;
+      final plan = await repository
+          .moveToTrash(item, deleteVideo: item.isLive)
+          .timeout(const Duration(seconds: 30));
+      if (plan['needsConsent'] == true) {
+        final ok = await completer.future
+            .timeout(const Duration(minutes: 2), onTimeout: () => false);
+        return ok;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _deleteCompleter = null;
+      _busy = false;
+    }
   }
 
   @override

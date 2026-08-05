@@ -3,14 +3,13 @@ package com.livemanager.live_manager
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
 import java.io.File
 import kotlin.math.abs
 
 /**
- * MediaStore 扫描器：查找 JPG + MP4 同名同目录配对，
- * 且 MP4 时长符合 Live Photo 特征（< 5 秒）。
+ * MediaStore 扫描器：返回全部 JPG 照片，
+ * 并识别同名同目录、时长 < 5 秒的 MP4 作为 Live Photo。
  */
 object LivePhotoScanner {
 
@@ -27,32 +26,32 @@ object LivePhotoScanner {
         val uri: Uri
     )
 
-    fun scan(context: Context): List<LivePhotoItem> {
+    fun scanAll(context: Context): List<PhotoItem> {
         val images = queryRows(context, isVideo = false)
         val videos = queryRows(context, isVideo = true)
 
         val imageIndex = indexByKey(images)
         val videoIndex = indexByKey(videos)
 
-        val result = mutableListOf<LivePhotoItem>()
+        val result = mutableListOf<PhotoItem>()
         for (key in imageIndex.keys) {
-            if (!videoIndex.containsKey(key)) continue
             val image = imageIndex.getValue(key).first()
-            val candidate = videoIndex.getValue(key)
-                .filter { it.durationMs in 1..MAX_LIVE_DURATION_MS }
-                .minByOrNull { abs(it.dateTaken - image.dateTaken) }
-                ?: continue
+            val candidate = videoIndex[key]
+                ?.filter { it.durationMs in 1..MAX_LIVE_DURATION_MS }
+                ?.minByOrNull { abs(it.dateTaken - image.dateTaken) }
 
-            result += LivePhotoItem(
+            result += PhotoItem(
                 imageId = image.id,
-                videoId = candidate.id,
                 imageUri = image.uri.toString(),
-                videoUri = candidate.uri.toString(),
-                displayName = image.displayName.removeSuffix(".jpg"),
+                displayName = image.displayName,
                 createTime = if (image.dateTaken > 0) image.dateTaken else image.id,
                 imageSize = image.size,
-                videoSize = candidate.size,
-                videoDurationMs = candidate.durationMs
+                relativePath = image.directory,
+                videoId = candidate?.id,
+                videoUri = candidate?.uri.toString(),
+                videoSize = candidate?.size,
+                videoDurationMs = candidate?.durationMs,
+                isLive = candidate != null
             )
         }
         result.sortByDescending { it.createTime }
@@ -148,11 +147,11 @@ object LivePhotoScanner {
         dataCol: Int
     ): String {
         if (relPathCol >= 0 && !cursor.isNull(relPathCol)) {
-            return cursor.getString(relPathCol).lowercase()
+            return cursor.getString(relPathCol)
         }
         if (dataCol >= 0 && !cursor.isNull(dataCol)) {
             val parent = File(cursor.getString(dataCol)).parentFile?.name ?: ""
-            return parent.lowercase()
+            return parent
         }
         return ""
     }

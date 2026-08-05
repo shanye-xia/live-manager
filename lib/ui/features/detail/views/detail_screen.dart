@@ -4,13 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
-import '../../../../domain/models/live_photo.dart';
+import '../../../../domain/models/photo_item.dart';
 import '../../../core/formatters.dart';
 import '../view_models/detail_view_model.dart';
 
-enum _SheetResult { deleted, cancelled }
-
-/// 详情页：相册风全屏大图 + 长按播放 + 角落信息按钮。
+/// 详情页：相册风全屏大图 + 长按播放 + 信息/删除。
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
     super.key,
@@ -20,7 +18,7 @@ class DetailScreen extends StatefulWidget {
     this.thumbnailFuture,
   });
 
-  final LivePhoto item;
+  final PhotoItem item;
   final LivePhotoRepository repository;
   final String? thumbnailPath;
   final Future<String>? thumbnailFuture;
@@ -102,44 +100,16 @@ class _DetailScreenState extends State<DetailScreen> {
             ),
           ),
           IconButton(
-            tooltip: '删除动态视频',
-            onPressed: _viewModel.deleting ? null : _deleteFromPage,
-            icon: _viewModel.deleting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white70,
-                    ),
-                  )
-                : const Icon(Icons.delete_outline_rounded,
-                    color: Colors.white70),
+            tooltip: widget.item.isLive ? '删除动态视频' : '删除照片',
+            onPressed: _confirmDelete,
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.redAccent,
+            ),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _deleteFromPage() async {
-    final success = await _viewModel.startDelete();
-    if (!mounted) return;
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('已删除动态视频'),
-        ),
-      );
-      Navigator.of(context).pop(true);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('已取消，未删除任何文件'),
-        ),
-      );
-    }
   }
 
   Widget _buildBottomStrip(BuildContext context) {
@@ -156,15 +126,17 @@ class _DetailScreenState extends State<DetailScreen> {
           children: [
             Text(
               '照片 ${formatBytes(item.imageSize)} · '
-              '动态 ${formatBytes(item.videoSize)} · '
+              '${item.isLive ? '动态 ${formatBytes(item.videoSize ?? 0)} · ' : ''}'
               '总计 ${formatBytes(item.totalSize)}',
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
-            const SizedBox(height: 2),
-            const Text(
-              '长按图片播放动态效果',
-              style: TextStyle(color: Colors.white38, fontSize: 10),
-            ),
+            if (item.isLive) ...[
+              const SizedBox(height: 2),
+              const Text(
+                '长按图片播放动态效果',
+                style: TextStyle(color: Colors.white38, fontSize: 10),
+              ),
+            ],
           ],
         ),
       ),
@@ -190,9 +162,13 @@ class _DetailScreenState extends State<DetailScreen> {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPressStart: (_) => _viewModel.startPlayback(),
-      onLongPressEnd: (_) => _viewModel.stopPlayback(),
-      onLongPressCancel: _viewModel.stopPlayback,
+      onLongPressStart: widget.item.isLive
+          ? (_) => _viewModel.startPlayback()
+          : null,
+      onLongPressEnd: widget.item.isLive
+          ? (_) => _viewModel.stopPlayback()
+          : null,
+      onLongPressCancel: widget.item.isLive ? _viewModel.stopPlayback : null,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -231,8 +207,63 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  /// 自定义确认弹窗：删除（红底）/ 取消（灰底），返回/点外部等同取消。
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(widget.item.isLive ? '删除动态视频？' : '删除照片？'),
+        content: Text(
+          widget.item.isLive
+              ? '将把 MP4 动态视频移入应用回收站，JPG 照片保留。'
+              : '将把照片移入应用回收站。',
+        ),
+        actions: [
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final success = await _viewModel.startDelete();
+    if (!mounted) return;
+    if (success) {
+      _showDeletedSnackBar();
+      Navigator.of(context).pop(true);
+    }
+    // 取消/失败不弹任何提示
+  }
+
+  /// “已删除”提示：点击即消失，多次删除快速覆盖。
+  void _showDeletedSnackBar() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        content: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: messenger.hideCurrentSnackBar,
+          child: const Text('已删除'),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showInfoSheet() async {
-    final result = await showModalBottomSheet<_SheetResult>(
+    await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF161616),
       shape: const RoundedRectangleBorder(
@@ -243,65 +274,26 @@ class _DetailScreenState extends State<DetailScreen> {
         item: widget.item,
       ),
     );
-    if (!mounted) return;
-
-    switch (result) {
-      case _SheetResult.deleted:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            behavior: SnackBarBehavior.floating,
-            content: Text('已删除动态视频'),
-          ),
-        );
-        Navigator.of(context).pop(true);
-      case _SheetResult.cancelled:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            behavior: SnackBarBehavior.floating,
-            content: Text('已取消，未删除任何文件'),
-          ),
-        );
-      case null:
-        break;
-    }
   }
 }
 
 /// 详情面板：文件信息 + EXIF + 删除（从底部弹出）。
-class _InfoSheet extends StatefulWidget {
+class _InfoSheet extends StatelessWidget {
   const _InfoSheet({required this.viewModel, required this.item});
 
   final DetailViewModel viewModel;
-  final LivePhoto item;
-
-  @override
-  State<_InfoSheet> createState() => _InfoSheetState();
-}
-
-class _InfoSheetState extends State<_InfoSheet> {
-  bool _deleting = false;
-
-  Future<void> _delete() async {
-    if (_deleting) return;
-    setState(() => _deleting = true);
-    final success = await widget.viewModel.startDelete();
-    if (!mounted) return;
-    Navigator.of(context).pop(
-      success ? _SheetResult.deleted : _SheetResult.cancelled,
-    );
-  }
+  final PhotoItem item;
 
   @override
   Widget build(BuildContext context) {
-    final item = widget.item;
     final rows = <(String, String)>[
       ('文件名', item.displayName),
       ('拍摄时间', formatDateTime(item.createTime)),
       ('照片', formatBytes(item.imageSize)),
-      ('动态', formatBytes(item.videoSize)),
+      if (item.isLive) ('动态', formatBytes(item.videoSize ?? 0)),
       ('总计', formatBytes(item.totalSize)),
     ];
-    final exif = widget.viewModel.exif;
+    final exif = viewModel.exif;
     if (exif != null) {
       rows.addAll(formatExif(exif));
     }
@@ -363,25 +355,6 @@ class _InfoSheetState extends State<_InfoSheet> {
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                side: const BorderSide(color: Colors.redAccent),
-              ),
-              onPressed: _deleting ? null : _delete,
-              icon: _deleting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.redAccent,
-                      ),
-                    )
-                  : const Icon(Icons.delete_outline),
-              label: Text(_deleting ? '删除中…' : '删除动态视频'),
             ),
           ],
         ),
