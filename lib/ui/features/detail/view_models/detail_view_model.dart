@@ -31,6 +31,7 @@ class DetailViewModel extends ChangeNotifier {
   bool _fullImageReady = false;
   String? _fullImageError;
   StreamSubscription<Map<String, dynamic>>? _deleteSub;
+  Completer<bool>? _deleteCompleter;
   bool _deleting = false;
 
   bool get loading => _loading;
@@ -138,30 +139,38 @@ class DetailViewModel extends ChangeNotifier {
     _deleting = true;
     notifyListeners();
 
-    try {
-      final plan = await repository.deleteVideo(item);
-      final requestId = plan['requestId'];
-      final completer = Completer<bool>();
-
-      _deleteSub ??= repository.events().listen((event) {
-        if (event['type'] == 'deleteResult' &&
-            event['requestId'] == requestId) {
-          if (!completer.isCompleted) {
-            completer.complete(event['success'] == true);
-          }
+    // 先建立事件监听，再发起删除，避免结果事件先于监听到达而丢失
+    final completer = Completer<bool>();
+    _deleteCompleter = completer;
+    _deleteSub ??= repository.events().listen((event) {
+      if (event['type'] == 'deleteResult') {
+        final target = _deleteCompleter;
+        if (target != null && !target.isCompleted) {
+          target.complete(event['success'] == true);
         }
-      });
+      }
+    });
 
+    try {
+      final plan = await repository
+          .deleteVideo(item)
+          .timeout(const Duration(seconds: 30));
+      if (plan['mode'] == 'unsupported') {
+        return _finishDelete(false);
+      }
       final success = await completer.future
           .timeout(const Duration(minutes: 2), onTimeout: () => false);
-      _deleting = false;
-      notifyListeners();
-      return success;
+      return _finishDelete(success);
     } catch (_) {
-      _deleting = false;
-      notifyListeners();
-      return false;
+      return _finishDelete(false);
     }
+  }
+
+  bool _finishDelete(bool success) {
+    _deleteCompleter = null;
+    _deleting = false;
+    notifyListeners();
+    return success;
   }
 
   @override

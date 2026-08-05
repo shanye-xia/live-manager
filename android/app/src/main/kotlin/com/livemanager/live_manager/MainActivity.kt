@@ -209,33 +209,38 @@ class MainActivity : FlutterActivity() {
         val videoUri = call.argument<String>("videoUri")
             ?: return result.error("bad_args", "videoUri 缺失", null)
 
-        deleteRequestId += 1
-        val requestId = deleteRequestId
-        val plan = LivePhotoDeleter.buildPlan(
-            contentResolver,
-            videoUri,
-            requestId
-        )
-        when (plan.mode) {
-            LivePhotoDeleter.RESULT_SYSTEM -> {
-                val sender: IntentSender = plan.intentSender
-                    ?: return result.error("delete_failed", "系统请求创建失败", null)
-                startIntentSenderForResult(
-                    sender,
-                    REQUEST_DELETE,
-                    null,
-                    0,
-                    0,
-                    0
-                )
-                result.success(mapOf("mode" to plan.mode, "requestId" to requestId))
-            }
-
-            else -> result.error(
-                "unsupported",
-                "当前系统版本不支持回收站删除（需 Android 11+）",
-                null
+        try {
+            deleteRequestId += 1
+            val requestId = deleteRequestId
+            val plan = LivePhotoDeleter.buildPlan(
+                contentResolver,
+                videoUri,
+                requestId
             )
+            when (plan.mode) {
+                LivePhotoDeleter.RESULT_SYSTEM -> {
+                    val sender: IntentSender = plan.intentSender
+                        ?: return result.error("delete_failed", "系统请求创建失败", null)
+                    startIntentSenderForResult(
+                        sender,
+                        REQUEST_DELETE,
+                        null,
+                        0,
+                        0,
+                        0
+                    )
+                    result.success(mapOf("mode" to plan.mode, "requestId" to requestId))
+                }
+
+                else -> result.error(
+                    "unsupported",
+                    "当前系统版本不支持回收站删除（需 Android 11+）",
+                    null
+                )
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("LiveManager", "发起删除失败", e)
+            result.error("delete_failed", "发起删除失败: ${e.message}", null)
         }
     }
 }
