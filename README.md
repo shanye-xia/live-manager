@@ -52,6 +52,10 @@ flutter test
 
 应用全程本地运行。删除功能仅通过系统回收站确认框执行，且不会删除 JPG 静态照片；开发调试中未经用户确认不会触发任何删除。
 
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源。
+
 ## 路线图
 
 见 [ROADMAP.md](ROADMAP.md)。产品需求见 [project.md](project.md)。
