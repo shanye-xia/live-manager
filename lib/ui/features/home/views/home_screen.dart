@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/live_photo.dart';
+import '../../../core/formatters.dart';
+import '../../detail/views/detail_screen.dart';
 import '../view_models/home_view_model.dart';
 
 /// 首页：Live 图片网格（Phase 3 首版）。
@@ -89,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     return _LivePhotoTile(
                       item: item,
                       thumbnailFuture: _viewModel.thumbnailPathFor(item),
+                      onTap: () => _openDetail(item),
                     );
                   },
                 );
@@ -97,6 +100,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  void _openDetail(LivePhoto item) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DetailScreen(
+          item: item,
+          repository: widget.repository,
+        ),
+      ),
     );
   }
 }
@@ -120,7 +134,7 @@ class _SummaryBar extends StatelessWidget {
           Text('共 $count 张 Live 图片', style: textTheme.titleSmall),
           const Spacer(),
           Text(
-            '占用 ${_formatBytes(totalBytes)}',
+            '占用 ${formatBytes(totalBytes)}',
             style: textTheme.bodyMedium
                 ?.copyWith(color: Theme.of(context).colorScheme.outline),
           ),
@@ -134,35 +148,40 @@ class _LivePhotoTile extends StatelessWidget {
   const _LivePhotoTile({
     required this.item,
     required this.thumbnailFuture,
+    required this.onTap,
   });
 
   final LivePhoto item;
   final Future<String> thumbnailFuture;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        FutureBuilder<String>(
-          future: thumbnailFuture,
-          builder: (context, snapshot) {
-            if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-              return Image.file(
-                File(snapshot.data!),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const _TilePlaceholder(),
-              );
-            }
-            return const _TilePlaceholder();
-          },
-        ),
-        const Positioned(
-          top: 6,
-          left: 6,
-          child: _LiveBadge(),
-        ),
-      ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FutureBuilder<String>(
+            future: thumbnailFuture,
+            builder: (context, snapshot) {
+              if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                return Image.file(
+                  File(snapshot.data!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const _TilePlaceholder(),
+                );
+              }
+              return const _TilePlaceholder();
+            },
+          ),
+          const Positioned(
+            top: 6,
+            left: 6,
+            child: _LiveBadge(),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -271,13 +290,4 @@ class _EmptyView extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  if (bytes < 1024 * 1024 * 1024) {
-    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
-  }
-  return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
 }

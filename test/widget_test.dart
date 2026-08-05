@@ -36,6 +36,21 @@ class _FakeRepository implements LivePhotoRepository {
   Future<String> thumbnailPathFor(LivePhoto item) async {
     return '/nonexistent/${item.imageId}.jpg';
   }
+
+  @override
+  Future<String> fullImagePathFor(LivePhoto item) async {
+    return '/nonexistent/${item.imageId}_full.jpg';
+  }
+
+  @override
+  Future<String> videoFilePathFor(LivePhoto item) async {
+    return '/nonexistent/${item.videoId}.mp4';
+  }
+
+  @override
+  Future<Map<String, dynamic>> exifFor(LivePhoto item) async {
+    return const {'model': 'vivo X200 Pro mini', 'iso': '1741'};
+  }
 }
 
 void main() {

@@ -28,6 +28,32 @@ object LivePhotoThumbnails {
         return cacheFile.absolutePath
     }
 
+    /** 复制原始图片到缓存目录（详情页大图显示，避免直接依赖 content://）。 */
+    fun fullImage(context: Context, imageId: Long, imageUri: String): String {
+        val dir = File(context.cacheDir, "full").apply { mkdirs() }
+        val cacheFile = File(dir, "$imageId.jpg")
+        if (cacheFile.exists() && cacheFile.length() > 0) {
+            return cacheFile.absolutePath
+        }
+        context.contentResolver.openInputStream(Uri.parse(imageUri))?.use { input ->
+            FileOutputStream(cacheFile).use { out -> input.copyTo(out) }
+        } ?: throw IOException("无法读取图片: $imageUri")
+        return cacheFile.absolutePath
+    }
+
+    /** 复制动态视频到缓存目录（长按播放使用本地文件，最稳定）。 */
+    fun videoFile(context: Context, videoId: Long, videoUri: String): String {
+        val dir = File(context.cacheDir, "videos").apply { mkdirs() }
+        val cacheFile = File(dir, "$videoId.mp4")
+        if (cacheFile.exists() && cacheFile.length() > 0) {
+            return cacheFile.absolutePath
+        }
+        context.contentResolver.openInputStream(Uri.parse(videoUri))?.use { input ->
+            FileOutputStream(cacheFile).use { out -> input.copyTo(out) }
+        } ?: throw IOException("无法读取视频: $videoUri")
+        return cacheFile.absolutePath
+    }
+
     private fun decode(context: Context, uri: Uri, sizePx: Int): Bitmap {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             return context.contentResolver.loadThumbnail(uri, Size(sizePx, sizePx), null)

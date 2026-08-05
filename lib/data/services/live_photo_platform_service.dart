@@ -51,6 +51,30 @@ class LivePhotoPlatformService {
     return path ?? '';
   }
 
+  /// 复制原始图片到缓存目录，返回本地文件路径（详情页大图）。
+  Future<String> getFullImage({
+    required int imageId,
+    required String imageUri,
+  }) async {
+    final path = await _channel.invokeMethod<String>('getFullImage', {
+      'id': imageId,
+      'uri': imageUri,
+    });
+    return path ?? '';
+  }
+
+  /// 复制动态视频到缓存目录，返回本地文件路径（长按播放）。
+  Future<String> getVideoFile({
+    required int videoId,
+    required String videoUri,
+  }) async {
+    final path = await _channel.invokeMethod<String>('getVideoFile', {
+      'id': videoId,
+      'uri': videoUri,
+    });
+    return path ?? '';
+  }
+
   /// 读取 JPG 的 EXIF 信息（只读）。
   Future<Map<String, dynamic>> getExif(String imageUri) async {
     final result =
