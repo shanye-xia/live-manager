@@ -11,10 +11,12 @@ class TrashDetailScreen extends StatefulWidget {
     super.key,
     required this.entry,
     required this.repository,
+    this.onRestored,
   });
 
   final TrashEntry entry;
   final LivePhotoRepository repository;
+  final void Function(Map<String, dynamic> info)? onRestored;
 
   @override
   State<TrashDetailScreen> createState() => _TrashDetailScreenState();
@@ -26,9 +28,10 @@ class _TrashDetailScreenState extends State<TrashDetailScreen> {
   Future<void> _restore() async {
     if (_busy) return;
     setState(() => _busy = true);
-    final ok = await widget.repository.restoreTrash(widget.entry.id);
+    final info = await widget.repository.restoreTrash(widget.entry.id);
     if (!mounted) return;
-    if (ok) {
+    if (info != null) {
+      widget.onRestored?.call(info);
       Navigator.of(context).pop('restored');
     } else {
       setState(() => _busy = false);

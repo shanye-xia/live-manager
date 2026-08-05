@@ -76,7 +76,18 @@ class _FakeRepository implements LivePhotoRepository {
   }
 
   @override
-  Future<bool> restoreTrash(String id) async => true;
+  Future<Map<String, dynamic>?> restoreTrash(String id) async {
+    return {
+      'mediaType': 'image',
+      'displayName': 'IMG_RESTORED.jpg',
+      'relativePath': 'DCIM/Camera/',
+      'size': 1000,
+      'dateTaken': 1780000000000,
+      'uri': 'content://media/external/images/media/999',
+      'id': 999,
+      'durationMs': null,
+    };
+  }
 
   @override
   Future<bool> permanentDeleteTrash(String id) async => true;

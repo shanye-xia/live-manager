@@ -9,9 +9,14 @@ import 'trash_detail_screen.dart';
 
 /// 应用回收站：缩略图列表，点击查看大图并可恢复/彻底删除。
 class RecycleBinScreen extends StatefulWidget {
-  const RecycleBinScreen({super.key, required this.repository});
+  const RecycleBinScreen({
+    super.key,
+    required this.repository,
+    this.onRestored,
+  });
 
   final LivePhotoRepository repository;
+  final void Function(Map<String, dynamic> info)? onRestored;
 
   @override
   State<RecycleBinScreen> createState() => _RecycleBinScreenState();
@@ -65,6 +70,7 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
         builder: (_) => TrashDetailScreen(
           entry: entry,
           repository: widget.repository,
+          onRestored: widget.onRestored,
         ),
       ),
     );
@@ -79,9 +85,10 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
   }
 
   Future<void> _restore(TrashEntry entry) async {
-    final ok = await widget.repository.restoreTrash(entry.id);
+    final info = await widget.repository.restoreTrash(entry.id);
     if (!mounted) return;
-    if (ok) {
+    if (info != null) {
+      widget.onRestored?.call(info);
       _removeEntry(entry.id);
       _showSnack('已恢复：${entry.originalFileName}');
     } else {

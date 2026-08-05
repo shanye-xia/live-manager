@@ -87,4 +87,45 @@ class HomeViewModel extends ChangeNotifier {
     _thumbnailPaths.remove(imageId);
     notifyListeners();
   }
+
+  /// 原地应用恢复结果：视频恢复则把同名 JPG 恢复 LIVE 标记，
+  /// 图片恢复则按时间插回列表。不重新扫描、保持滚动位置。
+  void applyRestored(Map<String, dynamic> info) {
+    final mediaType = info['mediaType'] as String? ?? 'image';
+    if (mediaType == 'video') {
+      final base = (info['displayName'] as String? ?? '')
+          .replaceAll(RegExp(r'\.mp4$'), '');
+      final rel = info['relativePath'] as String? ?? '';
+      _items = [
+        for (final item in _items)
+          if (!item.isLive &&
+              item.displayName.replaceAll(RegExp(r'\.jpg$'), '') == base &&
+              item.relativePath == rel)
+            item.copyWith(
+              isLive: true,
+              videoId: (info['id'] as num?)?.toInt(),
+              videoUri: info['uri'] as String?,
+              videoSize: (info['size'] as num?)?.toInt(),
+              videoDurationMs: (info['durationMs'] as num?)?.toInt(),
+            )
+          else
+            item,
+      ];
+    } else {
+      final item = PhotoItem(
+        imageId: (info['id'] as num?)?.toInt() ?? 0,
+        imageUri: info['uri'] as String? ?? '',
+        displayName: info['displayName'] as String? ?? '',
+        createTime: DateTime.fromMillisecondsSinceEpoch(
+          (info['dateTaken'] as num?)?.toInt() ?? 0,
+        ),
+        imageSize: (info['size'] as num?)?.toInt() ?? 0,
+        relativePath: info['relativePath'] as String? ?? '',
+        isLive: false,
+      );
+      _items = [..._items, item]
+        ..sort((a, b) => b.createTime.compareTo(a.createTime));
+    }
+    notifyListeners();
+  }
 }

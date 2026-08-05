@@ -133,10 +133,12 @@ class LivePhotoPlatformService {
     return path ?? '';
   }
 
-  /// 从回收站恢复。
-  Future<bool> restoreTrash(String id) async {
-    return await _channel.invokeMethod<bool>('restoreTrash', {'id': id}) ??
-        false;
+  /// 从回收站恢复，返回新文件信息（供首页原地更新）。
+  Future<Map<String, dynamic>?> restoreTrash(String id) async {
+    return await _channel.invokeMapMethod<String, dynamic>(
+      'restoreTrash',
+      {'id': id},
+    );
   }
 
   /// 彻底删除回收站条目。

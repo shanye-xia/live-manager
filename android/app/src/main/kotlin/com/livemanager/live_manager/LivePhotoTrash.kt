@@ -1,6 +1,7 @@
 package com.livemanager.live_manager
 
 import android.content.ContentValues
+import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -164,12 +165,35 @@ object LivePhotoTrash {
     fun trashFile(context: Context, entry: TrashEntry): File =
         File(trashDir(context), entry.trashFileName)
 
-    /** 恢复：写回媒体库原目录，然后移除回收站条目。 */
-    fun restore(context: Context, entry: TrashEntry) {
+    /** 恢复结果：新写入媒体库的文件信息，供首页原地更新。 */
+    data class RestoreResult(
+        val mediaType: String,
+        val displayName: String,
+        val relativePath: String,
+        val size: Long,
+        val dateTaken: Long,
+        val uri: String,
+        val id: Long,
+        val durationMs: Long?
+    ) {
+        fun toMap(): Map<String, Any?> = mapOf(
+            "mediaType" to mediaType,
+            "displayName" to displayName,
+            "relativePath" to relativePath,
+            "size" to size,
+            "dateTaken" to dateTaken,
+            "uri" to uri,
+            "id" to id,
+            "durationMs" to durationMs
+        )
+    }
+
+    /** 恢复：写回媒体库原目录，移除回收站条目，返回新文件信息。 */
+    fun restore(context: Context, entry: TrashEntry): RestoreResult {
         val source = trashFile(context, entry)
         if (!source.exists()) {
             removeEntry(context, entry.id)
-            return
+            throw IOException("回收站文件不存在")
         }
         val collection = if (entry.mediaType == "video") {
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -203,8 +227,33 @@ object LivePhotoTrash {
             }
             throw e
         }
+        val newId = ContentUris.parseId(uri)
+        val durationMs = if (entry.mediaType == "video") {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Video.Media.DURATION),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getLong(0) else 0L
+            } ?: 0L
+        } else {
+            null
+        }
+        val size = source.length()
         source.delete()
         removeEntry(context, entry.id)
+        return RestoreResult(
+            mediaType = entry.mediaType,
+            displayName = entry.originalFileName,
+            relativePath = entry.originalRelativePath,
+            size = size,
+            dateTaken = entry.dateTaken,
+            uri = uri.toString(),
+            id = newId,
+            durationMs = durationMs
+        )
     }
 
     /** 彻底删除回收站文件。 */

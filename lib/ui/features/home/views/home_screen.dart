@@ -173,7 +173,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openRecycleBin() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => RecycleBinScreen(repository: widget.repository),
+        builder: (_) => RecycleBinScreen(
+          repository: widget.repository,
+          onRestored: (info) {
+            if (mounted) _viewModel.applyRestored(info);
+          },
+        ),
       ),
     );
   }

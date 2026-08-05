@@ -274,11 +274,12 @@ class MainActivity : FlutterActivity() {
                     .firstOrNull { it.id == id }
                     ?: throw IllegalStateException("回收站条目不存在")
                 if (restore) {
-                    LivePhotoTrash.restore(applicationContext, entry)
+                    val info = LivePhotoTrash.restore(applicationContext, entry)
+                    runOnUiThread { result.success(info.toMap()) }
                 } else {
                     LivePhotoTrash.permanentDelete(applicationContext, entry)
+                    runOnUiThread { result.success(mapOf("ok" to true)) }
                 }
-                runOnUiThread { result.success(true) }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("trash_failed", e.message, null) }
             }

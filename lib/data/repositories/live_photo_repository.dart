@@ -46,8 +46,8 @@ abstract class LivePhotoRepository {
   /// 回收站条目的预览图路径。
   Future<String> trashPreviewPath(TrashEntry entry, {int size = 512});
 
-  /// 恢复回收站条目。
-  Future<bool> restoreTrash(String id);
+  /// 恢复回收站条目，返回新文件信息（供首页原地更新）。
+  Future<Map<String, dynamic>?> restoreTrash(String id);
 
   /// 彻底删除回收站条目。
   Future<bool> permanentDeleteTrash(String id);
@@ -140,7 +140,8 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   }
 
   @override
-  Future<bool> restoreTrash(String id) => _service.restoreTrash(id);
+  Future<Map<String, dynamic>?> restoreTrash(String id) =>
+      _service.restoreTrash(id);
 
   @override
   Future<bool> permanentDeleteTrash(String id) =>
