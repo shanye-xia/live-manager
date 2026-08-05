@@ -15,15 +15,15 @@ class DetailScreen extends StatefulWidget {
     required this.items,
     required this.initialIndex,
     required this.repository,
+    required this.thumbnailLoader,
     this.thumbnailPath,
-    this.thumbnailFuture,
   });
 
   final List<PhotoItem> items;
   final int initialIndex;
   final LivePhotoRepository repository;
+  final Future<String> Function(PhotoItem item) thumbnailLoader;
   final String? thumbnailPath;
-  final Future<String>? thumbnailFuture;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -59,12 +59,9 @@ class _DetailScreenState extends State<DetailScreen> {
               return _PhotoPage(
                 item: item,
                 repository: widget.repository,
-                thumbnailPath: index == widget.initialIndex
-                    ? widget.thumbnailPath
-                    : null,
-                thumbnailFuture: index == widget.initialIndex
-                    ? widget.thumbnailFuture
-                    : null,
+                thumbnailPath:
+                    index == widget.initialIndex ? widget.thumbnailPath : null,
+                thumbnailFuture: widget.thumbnailLoader(item),
                 uiVisible: _uiVisible,
                 positionText: '${index + 1} / ${widget.items.length}',
                 onToggleUi: () => setState(() => _uiVisible = !_uiVisible),
@@ -125,19 +122,24 @@ class _PhotoPageState extends State<_PhotoPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        _buildViewer(),
-        AnimatedOpacity(
-          opacity: widget.uiVisible ? 1 : 0,
-          duration: const Duration(milliseconds: 200),
-          child: IgnorePointer(
-            ignoring: !widget.uiVisible,
-            child: _buildOverlay(context),
-          ),
-        ),
-      ],
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildViewer(),
+            AnimatedOpacity(
+              opacity: widget.uiVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: IgnorePointer(
+                ignoring: !widget.uiVisible,
+                child: _buildOverlay(context),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -185,16 +187,26 @@ class _PhotoPageState extends State<_PhotoPage> {
                 child: VideoPlayer(_viewModel.controller!),
               ),
             ),
+          if (widget.item.isLive)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: AnimatedOpacity(
+                opacity: widget.uiVisible ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: const _LiveBadgeSmall(),
+              ),
+            ),
           if (!_viewModel.fullImageReady &&
               _viewModel.fullImageError == null)
             const Positioned(
-              top: 12,
+              top: 46,
               left: 12,
               child: _LoadingOriginalChip(),
             ),
           if (_viewModel.fullImageError != null)
             const Positioned(
-              top: 12,
+              top: 46,
               left: 12,
               child: _LoadOriginalFailedChip(),
             ),
@@ -385,6 +397,30 @@ class _PhotoPageState extends State<_PhotoPage> {
       builder: (_) => _InfoSheet(
         viewModel: _viewModel,
         item: widget.item,
+      ),
+    );
+  }
+}
+
+class _LiveBadgeSmall extends StatelessWidget {
+  const _LiveBadgeSmall();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Text(
+        'LIVE',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }

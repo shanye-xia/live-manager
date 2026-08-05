@@ -158,8 +158,8 @@ class _HomeScreenState extends State<HomeScreen> {
           items: _viewModel.items,
           initialIndex: index < 0 ? 0 : index,
           repository: widget.repository,
+          thumbnailLoader: _viewModel.thumbnailPathFor,
           thumbnailPath: thumbnailPath,
-          thumbnailFuture: _viewModel.thumbnailPathFor(item),
         ),
       ),
     );

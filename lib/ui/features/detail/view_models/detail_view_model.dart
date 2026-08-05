@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -45,18 +46,20 @@ class DetailViewModel extends ChangeNotifier {
   String? get fullImageError => _fullImageError;
 
   Future<void> init() async {
+    // 缩略图与原图并行加载：谁先就绪先显示谁，避免互相阻塞
+    unawaited(_loadFullContent());
     final thumb = thumbnailPath;
     if (thumb != null && thumb.isNotEmpty) {
       _showThumb(thumb);
-    } else if (thumbnailFuture != null) {
-      thumbnailFuture!
-          .then((path) {
-            if (!_fullImageReady && path.isNotEmpty) _showThumb(path);
-          })
-          .catchError((_) {});
+    } else {
+      try {
+        final path = await (thumbnailFuture ??
+            repository.thumbnailPathFor(item));
+        if (!_fullImageReady && path.isNotEmpty) _showThumb(path);
+      } catch (_) {
+        // 缩略图失败不阻塞原图加载
+      }
     }
-
-    await _loadFullContent();
   }
 
   void _showThumb(String path) {
@@ -114,7 +117,16 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   Future<void> startPlayback() async {
-    final controller = _controller;
+    var controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      // 视频仍在后台加载：最多等 3 秒就绪后播放
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while (DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        controller = _controller;
+        if (controller != null && controller.value.isInitialized) break;
+      }
+    }
     if (controller == null || !controller.value.isInitialized) return;
     await controller.seekTo(Duration.zero);
     await controller.play();
