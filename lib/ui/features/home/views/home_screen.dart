@@ -80,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
           count: _viewModel.items.length,
           liveCount: _viewModel.liveCount,
           totalBytes: _viewModel.totalBytes,
+          liveTotalBytes: _viewModel.liveTotalBytes,
         ),
         Expanded(
           child: RefreshIndicator(
@@ -278,31 +279,96 @@ class _SummaryBar extends StatelessWidget {
     required this.count,
     required this.liveCount,
     required this.totalBytes,
+    required this.liveTotalBytes,
   });
 
   final int count;
   final int liveCount;
   final int totalBytes;
+  final int liveTotalBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _SummaryTile(
+              icon: Icons.photo_library_outlined,
+              label: '全部照片',
+              countText: '$count 张',
+              sizeText: formatBytes(totalBytes),
+              color: scheme.primary,
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 34,
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+          Expanded(
+            child: _SummaryTile(
+              icon: Icons.motion_photos_on_outlined,
+              label: 'Live',
+              countText: '$liveCount 张',
+              sizeText: formatBytes(liveTotalBytes),
+              color: Colors.redAccent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryTile extends StatelessWidget {
+  const _SummaryTile({
+    required this.icon,
+    required this.label,
+    required this.countText,
+    required this.sizeText,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String countText;
+  final String sizeText;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Row(
-        children: [
-          Icon(Icons.photo_library_outlined,
-              size: 20, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(width: 8),
-          Text('共 $count 张照片 · $liveCount 张 Live', style: textTheme.titleSmall),
-          const Spacer(),
-          Text(
-            '占用 ${formatBytes(totalBytes)}',
-            style: textTheme.bodyMedium
-                ?.copyWith(color: Theme.of(context).colorScheme.outline),
-          ),
-        ],
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: textTheme.labelSmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.outline),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(countText, style: textTheme.titleSmall),
+        Text(
+          sizeText,
+          style: textTheme.bodySmall
+              ?.copyWith(color: Theme.of(context).colorScheme.outline),
+        ),
+      ],
     );
   }
 }
