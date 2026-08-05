@@ -51,6 +51,14 @@ class _FakeRepository implements LivePhotoRepository {
   Future<Map<String, dynamic>> exifFor(LivePhoto item) async {
     return const {'model': 'vivo X200 Pro mini', 'iso': '1741'};
   }
+
+  @override
+  Future<Map<String, dynamic>> deleteVideo(LivePhoto item) async {
+    return const {'mode': 'system', 'requestId': 1};
+  }
+
+  @override
+  Stream<Map<String, dynamic>> events() => const Stream.empty();
 }
 
 void main() {

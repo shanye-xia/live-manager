@@ -132,8 +132,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // 缩略图失败不阻塞进入详情
     }
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+    final deleted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (_) => DetailScreen(
           item: item,
           repository: widget.repository,
@@ -142,6 +142,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    if (deleted == true && mounted) {
+      _viewModel.load();
+    }
   }
 }
 

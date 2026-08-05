@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,8 @@ class DetailViewModel extends ChangeNotifier {
   bool _playing = false;
   bool _fullImageReady = false;
   String? _fullImageError;
+  StreamSubscription<Map<String, dynamic>>? _deleteSub;
+  bool _deleting = false;
 
   bool get loading => _loading;
   String? get imagePath => _imagePath;
@@ -39,6 +42,7 @@ class DetailViewModel extends ChangeNotifier {
   bool get videoReady => _controller?.value.isInitialized ?? false;
   bool get fullImageReady => _fullImageReady;
   String? get fullImageError => _fullImageError;
+  bool get deleting => _deleting;
 
   Future<void> init() async {
     // 第一帧必有图：已有缩略图直接显示，否则等缩略图 Future（比原图快得多）。
@@ -127,8 +131,42 @@ class DetailViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 发起删除：先出系统回收站确认框，等待用户确认结果后返回。
+  /// 返回 true 表示已删除（进入回收站），false 表示取消或失败。
+  Future<bool> startDelete() async {
+    if (_deleting) return false;
+    _deleting = true;
+    notifyListeners();
+
+    try {
+      final plan = await repository.deleteVideo(item);
+      final requestId = plan['requestId'];
+      final completer = Completer<bool>();
+
+      _deleteSub ??= repository.events().listen((event) {
+        if (event['type'] == 'deleteResult' &&
+            event['requestId'] == requestId) {
+          if (!completer.isCompleted) {
+            completer.complete(event['success'] == true);
+          }
+        }
+      });
+
+      final success = await completer.future
+          .timeout(const Duration(minutes: 2), onTimeout: () => false);
+      _deleting = false;
+      notifyListeners();
+      return success;
+    } catch (_) {
+      _deleting = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   @override
   void dispose() {
+    _deleteSub?.cancel();
     _controller?.dispose();
     super.dispose();
   }

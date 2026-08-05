@@ -25,6 +25,12 @@ abstract class LivePhotoRepository {
 
   /// 读取 JPG 的 EXIF 信息。
   Future<Map<String, dynamic>> exifFor(LivePhoto item);
+
+  /// 删除动态视频（仅生成系统确认请求，实际删除由用户在系统弹窗确认）。
+  Future<Map<String, dynamic>> deleteVideo(LivePhoto item);
+
+  /// 原生事件流（删除结果等）。
+  Stream<Map<String, dynamic>> events();
 }
 
 /// 基于 MediaStore 原生桥接的实现。
@@ -73,4 +79,12 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   Future<Map<String, dynamic>> exifFor(LivePhoto item) {
     return _service.getExif(item.imageUri);
   }
+
+  @override
+  Future<Map<String, dynamic>> deleteVideo(LivePhoto item) {
+    return _service.deleteVideo(item.videoUri);
+  }
+
+  @override
+  Stream<Map<String, dynamic>> events() => _service.events();
 }
