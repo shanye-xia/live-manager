@@ -87,69 +87,72 @@ class _TrashDetailScreenState extends State<TrashDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: FutureBuilder<String>(
-              future: widget.repository.trashPreviewPath(
-                widget.entry,
-                size: 2048,
-              ),
-              builder: (context, snapshot) {
-                if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-                  return Center(
-                    child: Image.file(
-                      File(snapshot.data!),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) => const Center(
-                        child: Text(
-                          '无法显示预览',
-                          style: TextStyle(color: Colors.white70),
+      body: SizedBox.expand(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: FutureBuilder<String>(
+                future: widget.repository.trashPreviewPath(
+                  widget.entry,
+                  size: 2048,
+                ),
+                builder: (context, snapshot) {
+                  if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                    return Center(
+                      child: Image.file(
+                        File(snapshot.data!),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Text(
+                            '无法显示预览',
+                            style: TextStyle(color: Colors.white70),
+                          ),
                         ),
                       ),
-                    ),
+                    );
+                  }
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
                   );
-                }
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                );
-              },
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                        color: Colors.white70),
-                  ),
-                  Expanded(
-                    child: Text(
-                      widget.entry.originalFileName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '恢复',
-                    onPressed: _busy ? null : _restore,
-                    icon: const Icon(Icons.restore, color: Colors.green),
-                  ),
-                  IconButton(
-                    tooltip: '彻底删除',
-                    onPressed: _busy ? null : _permanentDelete,
-                    icon: const Icon(Icons.delete_forever_outlined,
-                        color: Colors.redAccent),
-                  ),
-                ],
+                },
               ),
             ),
-          ),
-        ],
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                          color: Colors.white70),
+                    ),
+                    Expanded(
+                      child: Text(
+                        widget.entry.originalFileName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 15),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '恢复',
+                      onPressed: _busy ? null : _restore,
+                      icon: const Icon(Icons.restore, color: Colors.green),
+                    ),
+                    IconButton(
+                      tooltip: '彻底删除',
+                      onPressed: _busy ? null : _permanentDelete,
+                      icon: const Icon(Icons.delete_forever_outlined,
+                          color: Colors.redAccent),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

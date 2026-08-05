@@ -78,6 +78,51 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
     }
   }
 
+  Future<void> _restore(TrashEntry entry) async {
+    final ok = await widget.repository.restoreTrash(entry.id);
+    if (!mounted) return;
+    if (ok) {
+      _removeEntry(entry.id);
+      _showSnack('已恢复：${entry.originalFileName}');
+    } else {
+      _showSnack('恢复失败');
+    }
+  }
+
+  Future<void> _confirmPermanentDelete(TrashEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('彻底删除？'),
+        content: const Text('此操作不可恢复，文件将从回收站永久删除。'),
+        actions: [
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('彻底删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final ok = await widget.repository.permanentDeleteTrash(entry.id);
+    if (!mounted) return;
+    if (ok) {
+      _removeEntry(entry.id);
+      _showSnack('已彻底删除');
+    } else {
+      _showSnack('删除失败');
+    }
+  }
+
   void _showSnack(String message) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.removeCurrentSnackBar();
@@ -148,6 +193,22 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
               '${formatDateTime(entry.trashedAt)} · ${formatBytes(entry.size)}',
             ),
             onTap: () => _openDetail(entry),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: '恢复',
+                  onPressed: () => _restore(entry),
+                  icon: const Icon(Icons.restore, color: Colors.green),
+                ),
+                IconButton(
+                  tooltip: '彻底删除',
+                  onPressed: () => _confirmPermanentDelete(entry),
+                  icon: const Icon(Icons.delete_forever_outlined,
+                      color: Colors.redAccent),
+                ),
+              ],
+            ),
           );
         },
       ),

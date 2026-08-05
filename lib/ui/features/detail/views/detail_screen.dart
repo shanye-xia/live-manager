@@ -61,6 +61,7 @@ class _DetailScreenState extends State<DetailScreen> {
             itemBuilder: (context, index) {
               final item = _items[index];
               return _PhotoPage(
+                key: ValueKey(item.imageId),
                 item: item,
                 repository: widget.repository,
                 thumbnailPath:
@@ -106,6 +107,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
 class _PhotoPage extends StatefulWidget {
   const _PhotoPage({
+    super.key,
     required this.item,
     required this.repository,
     this.thumbnailPath,
