@@ -23,6 +23,15 @@ class _HomeScreenState extends State<HomeScreen> {
   late final HomeViewModel _viewModel;
   final ScrollController _scrollController = ScrollController();
 
+  // ---- 滑动多选：长按后拖动，划过自动选中/取消 ----
+  double? _dragRow0Top;
+  double? _dragGridLeft;
+  double _dragExtent = 0;
+  int _dragCols = 1;
+  int _dragLastIndex = -1;
+  bool _dragSelectState = false;
+  double _dragStartScroll = 0;
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +87,9 @@ class _HomeScreenState extends State<HomeScreen> {
             bottomNavigationBar: selectionMode
                 ? _SelectionActionBar(
                     allSelected: _viewModel.allVisibleSelected,
+                    showDeleteLive: _viewModel.selectedLiveCount > 0,
                     onToggleSelectAll: _viewModel.toggleSelectAllVisible,
+                    onDeleteLive: _confirmDeleteLiveParts,
                     onDelete: _confirmBatchDelete,
                   )
                 : null,
@@ -142,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               (context, index) {
                                 final item = _viewModel.items[index];
                                 return _PhotoTile(
+                                  index: index,
                                   item: item,
                                   thumbnailFuture:
                                       _viewModel.thumbnailPathFor(item),
@@ -154,6 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       : _openDetail(item),
                                   onLongPress: () => _viewModel
                                       .enterSelectionMode(item),
+                                  onDragSelectStart: _onDragSelectStart,
+                                  onDragSelectMove: _onDragSelectMove,
+                                  onDragSelectEnd: _endDragSelect,
                                 );
                               },
                               childCount: _viewModel.items.length,
@@ -261,6 +276,118 @@ class _HomeScreenState extends State<HomeScreen> {
       if (result.failed > 0) '${result.failed} 项失败',
     ];
     _showSnack(parts.isEmpty ? '删除失败' : parts.join('，'));
+  }
+
+  void _onDragSelectStart(
+    int index,
+    Offset tileTopLeft,
+    double tileSize,
+    bool currentlySelected,
+  ) {
+    final scrollOffset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final width = MediaQuery.sizeOf(context).width;
+    final extent = tileSize + 2; // 单元格宽/高 + 2px 间距
+    final cols = ((width - 2) / extent).floor().clamp(1, 1000);
+    _dragRow0Top = tileTopLeft.dy - (index ~/ cols) * extent;
+    _dragGridLeft = tileTopLeft.dx - (index % cols) * extent;
+    _dragExtent = extent;
+    _dragCols = cols;
+    _dragLastIndex = index;
+    _dragSelectState = !currentlySelected;
+    _dragStartScroll = scrollOffset;
+  }
+
+  void _onDragSelectMove(Offset globalPosition) {
+    final row0Top = _dragRow0Top;
+    final gridLeft = _dragGridLeft;
+    if (row0Top == null || gridLeft == null || _dragExtent <= 0) return;
+    final scrollOffset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final scrollDelta = scrollOffset - _dragStartScroll;
+    final row =
+        ((globalPosition.dy - row0Top + scrollDelta) / _dragExtent).floor();
+    final col = ((globalPosition.dx - gridLeft) / _dragExtent).floor();
+    final index =
+        (row * _dragCols + col).clamp(0, _viewModel.items.length - 1);
+    if (index != _dragLastIndex) {
+      _dragLastIndex = index;
+      final item = _viewModel.items[index];
+      final selected = _viewModel.selectedIds.contains(item.imageId);
+      if (selected != _dragSelectState) {
+        _viewModel.setSelection(item, selected: _dragSelectState);
+      }
+    }
+    _maybeAutoScroll(globalPosition);
+  }
+
+  /// 拖动到屏幕上下边缘时自动滚动，方便跨屏连续选择。
+  void _maybeAutoScroll(Offset globalPosition) {
+    final row0Top = _dragRow0Top;
+    if (row0Top == null) return;
+    const edge = 56.0;
+    final height = MediaQuery.sizeOf(context).height;
+    final top = row0Top;
+    final bottom = height - 64.0; // 底部操作栏所在区域
+    double delta = 0;
+    if (globalPosition.dy < top + edge) {
+      delta = -(edge - (globalPosition.dy - top)).clamp(0.0, edge) * 0.5;
+    } else if (globalPosition.dy > bottom - edge) {
+      delta = (edge - (bottom - globalPosition.dy)).clamp(0.0, edge) * 0.5;
+    }
+    if (delta == 0 || !_scrollController.hasClients) return;
+    final target = (_scrollController.offset + delta)
+        .clamp(0.0, _scrollController.position.maxScrollExtent);
+    if (target != _scrollController.offset) {
+      _scrollController.jumpTo(target);
+    }
+  }
+
+  void _endDragSelect() {
+    _dragRow0Top = null;
+    _dragGridLeft = null;
+    _dragLastIndex = -1;
+  }
+
+  Future<void> _confirmDeleteLiveParts() async {
+    final liveCount = _viewModel.selectedLiveCount;
+    if (liveCount == 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除 Live 动态视频？'),
+        content: Text(
+          '将删除 $liveCount 张 Live 图的动态视频，'
+          '照片保留；普通照片不受影响。',
+        ),
+        actions: [
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final result = await _withProgress(
+      '正在删除动态视频…',
+      _viewModel.deleteLiveParts,
+    );
+    if (!mounted) return;
+    _showSnack(
+      result.failed > 0
+          ? '已删除 ${result.videoOnly} 张 Live 动态，${result.failed} 张失败'
+          : '已删除 ${result.videoOnly} 张 Live 动态',
+    );
   }
 
   Future<T> _withProgress<T>(
@@ -558,26 +685,55 @@ class _SummaryBarState extends State<_SummaryBar> {
 
 class _PhotoTile extends StatelessWidget {
   const _PhotoTile({
+    required this.index,
     required this.item,
     required this.thumbnailFuture,
     required this.selectionMode,
     required this.selected,
     required this.onTap,
     required this.onLongPress,
+    required this.onDragSelectStart,
+    required this.onDragSelectMove,
+    required this.onDragSelectEnd,
   });
 
+  final int index;
   final PhotoItem item;
   final Future<String> thumbnailFuture;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final void Function(
+    int index,
+    Offset tileTopLeft,
+    double tileSize,
+    bool currentlySelected,
+  )
+      onDragSelectStart;
+  final ValueChanged<Offset> onDragSelectMove;
+  final VoidCallback onDragSelectEnd;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      onLongPress: onLongPress,
+      onLongPressStart: (_) {
+        onLongPress();
+        final box = context.findRenderObject();
+        if (box is RenderBox) {
+          onDragSelectStart(
+            index,
+            box.localToGlobal(Offset.zero),
+            box.size.shortestSide,
+            selected,
+          );
+        }
+      },
+      onLongPressMoveUpdate: (details) =>
+          onDragSelectMove(details.globalPosition),
+      onLongPressEnd: (_) => onDragSelectEnd(),
+      onLongPressCancel: onDragSelectEnd,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -659,12 +815,16 @@ class _SelectionBadge extends StatelessWidget {
 class _SelectionActionBar extends StatelessWidget {
   const _SelectionActionBar({
     required this.allSelected,
+    required this.showDeleteLive,
     required this.onToggleSelectAll,
+    required this.onDeleteLive,
     required this.onDelete,
   });
 
   final bool allSelected;
+  final bool showDeleteLive;
   final VoidCallback onToggleSelectAll;
+  final VoidCallback onDeleteLive;
   final VoidCallback onDelete;
 
   @override
@@ -675,25 +835,66 @@ class _SelectionActionBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: onToggleSelectAll,
-                  icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
-                  label: Text(allSelected ? '取消全选' : '全选'),
-                ),
+              _ActionButton(
+                icon: allSelected ? Icons.deselect : Icons.select_all,
+                label: allSelected ? '取消全选' : '全选',
+                onTap: onToggleSelectAll,
               ),
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('删除'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                  ),
+              if (showDeleteLive)
+                _ActionButton(
+                  icon: Icons.movie_outlined,
+                  label: '删除Live部分',
+                  onTap: onDeleteLive,
                 ),
+              _ActionButton(
+                icon: Icons.delete_outline,
+                label: '删除',
+                destructive: true,
+                onTap: onDelete,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive ? Colors.redAccent : Colors.white;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: color, fontSize: 12),
               ),
             ],
           ),

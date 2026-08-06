@@ -31,6 +31,7 @@ class HomeViewModel extends ChangeNotifier {
   final Map<int, String> _thumbnailPaths = {};
   bool _selectionMode = false;
   final Set<int> _selectedIds = {};
+  int _selectedLiveCount = 0;
 
   HomeStatus get status => _status;
   List<PhotoItem> get items => _items;
@@ -38,6 +39,8 @@ class HomeViewModel extends ChangeNotifier {
   bool get selectionMode => _selectionMode;
   int get selectedCount => _selectedIds.length;
   Set<int> get selectedIds => Set.unmodifiable(_selectedIds);
+  int get selectedLiveCount => _selectedLiveCount;
+  bool get hasLiveSelected => _selectedLiveCount > 0;
 
   int get totalBytes =>
       _items.fold<int>(0, (sum, item) => sum + item.totalSize);
@@ -90,7 +93,24 @@ class HomeViewModel extends ChangeNotifier {
 
   void enterSelectionMode(PhotoItem item) {
     _selectionMode = true;
-    _selectedIds.add(item.imageId);
+    if (_selectedIds.add(item.imageId) && item.isLive) {
+      _selectedLiveCount++;
+    }
+    notifyListeners();
+  }
+
+  /// 滑动多选：把指定项设置成选中/取消（无变化时不通知，避免无谓重建）。
+  void setSelection(PhotoItem item, {required bool selected}) {
+    if (!_selectionMode) return;
+    final contains = _selectedIds.contains(item.imageId);
+    if (selected == contains) return;
+    if (selected) {
+      _selectedIds.add(item.imageId);
+      if (item.isLive) _selectedLiveCount++;
+    } else {
+      _selectedIds.remove(item.imageId);
+      if (item.isLive) _selectedLiveCount--;
+    }
     notifyListeners();
   }
 
@@ -98,6 +118,9 @@ class HomeViewModel extends ChangeNotifier {
     if (!_selectionMode) return;
     if (!_selectedIds.add(item.imageId)) {
       _selectedIds.remove(item.imageId);
+      if (item.isLive) _selectedLiveCount--;
+    } else if (item.isLive) {
+      _selectedLiveCount++;
     }
     notifyListeners();
   }
@@ -105,8 +128,10 @@ class HomeViewModel extends ChangeNotifier {
   void toggleSelectAllVisible() {
     if (allVisibleSelected) {
       _selectedIds.clear();
+      _selectedLiveCount = 0;
     } else {
       _selectedIds.addAll(_items.map((e) => e.imageId));
+      _selectedLiveCount = _items.where((e) => e.isLive).length;
     }
     notifyListeners();
   }
@@ -114,6 +139,7 @@ class HomeViewModel extends ChangeNotifier {
   void exitSelectionMode() {
     _selectionMode = false;
     _selectedIds.clear();
+    _selectedLiveCount = 0;
     notifyListeners();
   }
 
@@ -196,9 +222,60 @@ class HomeViewModel extends ChangeNotifier {
     }
     _selectionMode = false;
     _selectedIds.clear();
+    _selectedLiveCount = 0;
     notifyListeners();
     return BatchDeleteResult(
       deleted: deleted,
+      videoOnly: videoOnly,
+      failed: failed,
+    );
+  }
+
+  /// 批量仅删除选中 Live 图的动态视频：照片保留并去掉 LIVE 标记，
+  /// 普通照片不受影响。删除后原地更新列表、保持滚动位置。
+  Future<BatchDeleteResult> deleteLiveParts() async {
+    final targets = _items
+        .where((e) => _selectedIds.contains(e.imageId) && e.isLive)
+        .toList();
+    var videoOnly = 0;
+    var failed = 0;
+    final videoOnlyIds = <int>{};
+    for (final item in targets) {
+      try {
+        final result = await repository.moveToTrash(item, deleteVideo: true);
+        if (result['status'] == 'ok') {
+          videoOnly++;
+          videoOnlyIds.add(item.imageId);
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (videoOnlyIds.isNotEmpty) {
+      _items = [
+        for (final item in _items)
+          if (videoOnlyIds.contains(item.imageId))
+            PhotoItem(
+              imageId: item.imageId,
+              imageUri: item.imageUri,
+              displayName: item.displayName,
+              createTime: item.createTime,
+              imageSize: item.imageSize,
+              relativePath: item.relativePath,
+              isLive: false,
+            )
+          else
+            item,
+      ];
+    }
+    _selectionMode = false;
+    _selectedIds.clear();
+    _selectedLiveCount = 0;
+    notifyListeners();
+    return BatchDeleteResult(
+      deleted: 0,
       videoOnly: videoOnly,
       failed: failed,
     );

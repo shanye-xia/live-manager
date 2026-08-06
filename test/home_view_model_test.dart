@@ -164,4 +164,60 @@ void main() {
       expect(vm.items.first.videoId, isNull);
     });
   });
+
+  group('HomeViewModel 滑动多选与 Live 计数', () {
+    test('滑动设置选中/取消并维护 Live 计数', () async {
+      final vm = HomeViewModel(repository: _FakeRepository());
+      await vm.load();
+      vm.enterSelectionMode(vm.items.first); // Live
+      expect(vm.selectedLiveCount, 1);
+
+      vm.setSelection(vm.items[1], selected: true); // 普通
+      expect(vm.selectedCount, 2);
+      expect(vm.selectedLiveCount, 1);
+
+      vm.setSelection(vm.items.first, selected: false);
+      expect(vm.selectedCount, 1);
+      expect(vm.selectedLiveCount, 0);
+
+      // 无变化调用不影响状态
+      vm.setSelection(vm.items[1], selected: true);
+      expect(vm.selectedCount, 1);
+      expect(vm.selectedLiveCount, 0);
+    });
+
+    test('全选时 Live 计数正确，退出清零', () async {
+      final vm = HomeViewModel(repository: _FakeRepository());
+      await vm.load();
+      vm.enterSelectionMode(vm.items.first);
+      vm.toggleSelectAllVisible();
+      expect(vm.selectedLiveCount, 1);
+      vm.toggleSelectAllVisible();
+      expect(vm.selectedLiveCount, 0);
+      vm.exitSelectionMode();
+      expect(vm.selectedLiveCount, 0);
+    });
+  });
+
+  group('HomeViewModel 批量仅删 Live 动态', () {
+    test('只删选中 Live 的视频，照片降级为非 Live', () async {
+      final fake = _FakeRepository();
+      final vm = HomeViewModel(repository: fake);
+      await vm.load();
+      vm.enterSelectionMode(vm.items.first);
+      vm.setSelection(vm.items[1], selected: true);
+
+      final result = await vm.deleteLiveParts();
+      expect(result.videoOnly, 1);
+      expect(result.deleted, 0);
+      expect(result.failed, 0);
+      expect(fake.deleteCalls, 1);
+      expect(vm.items, hasLength(3));
+      expect(vm.items.first.isLive, isFalse);
+      expect(vm.items.first.videoId, isNull);
+      expect(vm.selectionMode, isFalse);
+      expect(vm.selectedCount, 0);
+      expect(vm.selectedLiveCount, 0);
+    });
+  });
 }

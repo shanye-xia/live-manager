@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:live_manager/data/repositories/live_photo_repository.dart';
 import 'package:live_manager/domain/models/photo_item.dart';
 import 'package:live_manager/domain/models/trash_entry.dart';
@@ -133,5 +134,38 @@ void main() {
     // still on home screen, selection mode exited
     expect(find.text('Live Manager'), findsOneWidget);
     expect(find.byIcon(Icons.close), findsNothing);
+  });
+
+  testWidgets('long-press and drag over grid selects multiple photos', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
+    await tester.pumpAndSettle();
+
+    final start = tester.getCenter(find.text('LIVE'));
+    final gesture = await tester.startGesture(start);
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+    await gesture.moveTo(start + const Offset(160, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选 2 项'), findsOneWidget);
+  });
+
+  testWidgets('selection bar hides delete-live button when no live selected', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除Live部分'), findsOneWidget);
+    expect(find.text('全选'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
+
+    // 取消选中 Live 图，只剩普通图未选，隐藏快捷键
+    await tester.tap(find.text('LIVE'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除Live部分'), findsNothing);
   });
 }
