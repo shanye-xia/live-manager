@@ -28,6 +28,7 @@ class HomeViewModel extends ChangeNotifier {
   List<PhotoItem> _allItems = const [];
   List<PhotoItem>? _liveCache;
   String? _error;
+  int _trashRevision = 0;
   final Map<int, Future<String>> _thumbnailFutures = {};
   final Map<int, String> _thumbnailPaths = {};
   bool _selectionMode = false;
@@ -52,6 +53,11 @@ class HomeViewModel extends ChangeNotifier {
   Set<int> get selectedIds => Set.unmodifiable(_selectedIds);
   int get selectedLiveCount => _selectedLiveCount;
   bool get hasLiveSelected => _selectedLiveCount > 0;
+
+  /// 回收站数据版本号：删除/恢复成功后自增，
+  /// 回收站页监听它即时刷新，不需要手动下拉。
+  int get trashRevision => _trashRevision;
+  void _bumpTrashRevision() => _trashRevision++;
 
   int get totalBytes =>
       _allItems.fold<int>(0, (sum, item) => sum + item.totalSize);
@@ -258,6 +264,7 @@ class HomeViewModel extends ChangeNotifier {
         newItems.add(item);
       }
       _items = newItems;
+      _bumpTrashRevision();
     }
     _selectionMode = false;
     _selectedIds.clear();
@@ -339,6 +346,7 @@ class HomeViewModel extends ChangeNotifier {
       ];
     } else {
       _items = _allItems.where((item) => item.imageId != imageId).toList();
+      _bumpTrashRevision();
     }
     _thumbnailFutures.remove(imageId);
     _thumbnailPaths.remove(imageId);

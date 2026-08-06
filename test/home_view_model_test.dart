@@ -220,4 +220,20 @@ void main() {
       expect(vm.selectedLiveCount, 0);
     });
   });
+
+  group('HomeViewModel 回收站即时刷新', () {
+    test('删除成功后 trashRevision 递增', () async {
+      final vm = HomeViewModel(repository: _FakeRepository());
+      await vm.load();
+      final before = vm.trashRevision;
+
+      // 仅删动态不影响回收站列表，不触发
+      vm.applyDelete(vm.items.first.imageId, videoOnly: true);
+      expect(vm.trashRevision, before);
+
+      // 整张删除进回收站，触发即时刷新
+      vm.applyDelete(vm.items.first.imageId, videoOnly: false);
+      expect(vm.trashRevision, before + 1);
+    });
+  });
 }

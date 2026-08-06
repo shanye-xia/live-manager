@@ -42,6 +42,7 @@ class _HomeShellState extends State<HomeShell> {
       _RecycleBinGate(
         repository: widget.repository,
         onRestored: _viewModel.applyRestored,
+        revisionListenable: _viewModel,
       ),
     ];
   }
@@ -79,6 +80,7 @@ class _HomeShellState extends State<HomeShell> {
         return Scaffold(
           body: PageView.builder(
             controller: _pageController,
+            physics: const _SnappyPageScrollPhysics(),
             itemCount: 3,
             allowImplicitScrolling: false,
             onPageChanged: _onPageChanged,
@@ -117,13 +119,37 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
+/// 快速定住的页面弹簧：左右滑动放手后约 300ms 停稳，无回弹。
+/// 相比默认弹簧（mass 0.5 / stiffness 100 / ratio 1.1，要 700ms+
+/// 且带回弹）明显更快，消除滑动到底后"飘一下"的卡顿感。
+class _SnappyPageScrollPhysics extends PageScrollPhysics {
+  const _SnappyPageScrollPhysics();
+
+  @override
+  _SnappyPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _SnappyPageScrollPhysics();
+  }
+
+  @override
+  SpringDescription get spring => const SpringDescription(
+        mass: 0.5,
+        stiffness: 400,
+        damping: 28.28,
+      );
+}
+
 /// 回收站页面的懒加载门：首次进入时才创建并加载，
 /// 之后保持活在，不重新扫描。
 class _RecycleBinGate extends StatefulWidget {
-  const _RecycleBinGate({required this.repository, required this.onRestored});
+  const _RecycleBinGate({
+    required this.repository,
+    required this.onRestored,
+    this.revisionListenable,
+  });
 
   final LivePhotoRepository repository;
   final void Function(Map<String, dynamic> info) onRestored;
+  final Listenable? revisionListenable;
 
   @override
   State<_RecycleBinGate> createState() => _RecycleBinGateState();
@@ -137,6 +163,7 @@ class _RecycleBinGateState extends State<_RecycleBinGate> {
     return _child ??= RecycleBinScreen(
       repository: widget.repository,
       onRestored: widget.onRestored,
+      revisionListenable: widget.revisionListenable,
     );
   }
 }
