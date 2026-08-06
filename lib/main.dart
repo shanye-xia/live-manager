@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'data/repositories/live_photo_repository.dart';
-import 'ui/features/home/views/home_screen.dart';
+import 'ui/features/home/views/home_shell.dart';
 
 void main() {
   runApp(const LiveManagerApp());
@@ -22,7 +22,7 @@ class LiveManagerApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0072FF)),
         useMaterial3: true,
       ),
-      home: HomeScreen(
+      home: HomeShell(
         repository: repository ?? const MediaStoreLivePhotoRepository(),
       ),
     );

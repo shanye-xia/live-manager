@@ -129,7 +129,7 @@ void main() {
 
     expect(find.text('Live Manager'), findsOneWidget);
     expect(find.text('全部照片'), findsOneWidget);
-    expect(find.text('Live'), findsOneWidget);
+    expect(find.text('Live'), findsNWidgets(2));
     expect(find.text('2 张'), findsOneWidget);
     expect(find.text('1 张'), findsOneWidget);
 
@@ -281,5 +281,66 @@ void main() {
 
     expect(after, lessThan(before)); // 列表向上翻页
     expect(find.text('已选 1 项'), findsOneWidget); // 纵向滑动不选中
+  });
+  testWidgets('bottom nav switches to Live-only grid', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('Live'),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Live 动态'), findsOneWidget);
+    expect(find.text('全部照片'), findsNothing);
+    expect(find.text('12 张'), findsNothing);
+    expect(find.text('1 张'), findsOneWidget);
+  });
+
+  testWidgets('selection mode hides bottom navigation', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('已选 1 项'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+  });
+
+  testWidgets('recycle bin tab opens', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('回收站'),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('回收站为空'), findsOneWidget);
+  });
+
+  testWidgets('swipe left/right switches tabs', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Live Manager'), findsOneWidget);
+    await tester.fling(find.byType(PageView), const Offset(-400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('Live 动态'), findsOneWidget);
+
+    await tester.fling(find.byType(PageView), const Offset(-400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('回收站为空'), findsOneWidget);
+
+    await tester.fling(find.byType(PageView), const Offset(400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('Live 动态'), findsOneWidget);
   });
 }

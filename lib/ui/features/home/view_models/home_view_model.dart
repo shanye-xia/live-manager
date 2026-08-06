@@ -25,7 +25,8 @@ class HomeViewModel extends ChangeNotifier {
   final LivePhotoRepository repository;
 
   HomeStatus _status = HomeStatus.initial;
-  List<PhotoItem> _items = const [];
+  List<PhotoItem> _allItems = const [];
+  List<PhotoItem>? _liveCache;
   String? _error;
   final Map<int, Future<String>> _thumbnailFutures = {};
   final Map<int, String> _thumbnailPaths = {};
@@ -34,7 +35,17 @@ class HomeViewModel extends ChangeNotifier {
   int _selectedLiveCount = 0;
 
   HomeStatus get status => _status;
-  List<PhotoItem> get items => _items;
+  List<PhotoItem> get items => _allItems;
+
+  /// Cached live-only view of the full list. Rebuilt once when the
+  /// underlying list changes, so the Live tab never re-scans.
+  List<PhotoItem> get liveItems =>
+      _liveCache ??= _allItems.where((e) => e.isLive).toList();
+
+  set _items(List<PhotoItem> value) {
+    _allItems = value;
+    _liveCache = null;
+  }
   String? get error => _error;
   bool get selectionMode => _selectionMode;
   int get selectedCount => _selectedIds.length;
@@ -43,21 +54,21 @@ class HomeViewModel extends ChangeNotifier {
   bool get hasLiveSelected => _selectedLiveCount > 0;
 
   int get totalBytes =>
-      _items.fold<int>(0, (sum, item) => sum + item.totalSize);
+      _allItems.fold<int>(0, (sum, item) => sum + item.totalSize);
 
-  int get liveCount => _items.where((item) => item.isLive).length;
+  int get liveCount => _allItems.where((item) => item.isLive).length;
 
-  int get liveImageTotalBytes => _items
+  int get liveImageTotalBytes => _allItems
       .where((item) => item.isLive)
       .fold<int>(0, (sum, item) => sum + item.imageSize);
 
-  int get liveVideoTotalBytes => _items
+  int get liveVideoTotalBytes => _allItems
       .where((item) => item.isLive)
       .fold<int>(0, (sum, item) => sum + (item.videoSize ?? 0));
 
-  bool get allVisibleSelected {
-    return _items.isNotEmpty &&
-        _items.every((e) => _selectedIds.contains(e.imageId));
+  bool allVisibleSelected(List<PhotoItem> visible) {
+    return visible.isNotEmpty &&
+        visible.every((e) => _selectedIds.contains(e.imageId));
   }
 
   Future<void> load() async {
@@ -75,6 +86,14 @@ class HomeViewModel extends ChangeNotifier {
       _status = HomeStatus.error;
     }
     notifyListeners();
+  }
+
+  /// 后台预热全部缩略图（先解析路径、填充平台缓存），
+  /// 使得切换到 Live 页时缩略图已经就绪，避免滑动动画期间场景内重度加载。
+  void prewarmThumbnails() {
+    for (final item in _allItems) {
+      thumbnailPathFor(item).catchError((_) => '');
+    }
   }
 
   /// 返回缩略图文件路径（同一 item 只请求一次，Future 记忆化）。
@@ -145,13 +164,13 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleSelectAllVisible() {
-    if (allVisibleSelected) {
+  void toggleSelectAllVisible(List<PhotoItem> visible) {
+    if (allVisibleSelected(visible)) {
       _selectedIds.clear();
       _selectedLiveCount = 0;
     } else {
-      _selectedIds.addAll(_items.map((e) => e.imageId));
-      _selectedLiveCount = _items.where((e) => e.isLive).length;
+      _selectedIds.addAll(visible.map((e) => e.imageId));
+      _selectedLiveCount = visible.where((e) => e.isLive).length;
     }
     notifyListeners();
   }
@@ -166,7 +185,7 @@ class HomeViewModel extends ChangeNotifier {
   /// 批量删除：Live 先删视频再删图片；失败项保持原状，部分成功则降级为非 Live。
   /// 删除后原地更新列表，不重新扫描、不重置滚动位置。
   Future<BatchDeleteResult> deleteSelected() async {
-    final targets = _items
+    final targets = _allItems
         .where((e) => _selectedIds.contains(e.imageId))
         .toList();
     var deleted = 0;
@@ -216,7 +235,7 @@ class HomeViewModel extends ChangeNotifier {
 
     if (deletedIds.isNotEmpty || videoOnlyIds.isNotEmpty) {
       final newItems = <PhotoItem>[];
-      for (final item in _items) {
+      for (final item in _allItems) {
         if (deletedIds.contains(item.imageId)) {
           _thumbnailFutures.remove(item.imageId);
           _thumbnailPaths.remove(item.imageId);
@@ -254,7 +273,7 @@ class HomeViewModel extends ChangeNotifier {
   /// 批量仅删除选中 Live 图的动态视频：照片保留并去掉 LIVE 标记，
   /// 普通照片不受影响。删除后原地更新列表、保持滚动位置。
   Future<BatchDeleteResult> deleteLiveParts() async {
-    final targets = _items
+    final targets = _allItems
         .where((e) => _selectedIds.contains(e.imageId) && e.isLive)
         .toList();
     var videoOnly = 0;
@@ -275,7 +294,7 @@ class HomeViewModel extends ChangeNotifier {
     }
     if (videoOnlyIds.isNotEmpty) {
       _items = [
-        for (final item in _items)
+        for (final item in _allItems)
           if (videoOnlyIds.contains(item.imageId))
             PhotoItem(
               imageId: item.imageId,
@@ -306,7 +325,7 @@ class HomeViewModel extends ChangeNotifier {
   void applyDelete(int imageId, {required bool videoOnly}) {
     if (videoOnly) {
       _items = [
-        for (final item in _items)
+        for (final item in _allItems)
           if (item.imageId == imageId)
             item.copyWith(
               isLive: false,
@@ -319,7 +338,7 @@ class HomeViewModel extends ChangeNotifier {
             item,
       ];
     } else {
-      _items = _items.where((item) => item.imageId != imageId).toList();
+      _items = _allItems.where((item) => item.imageId != imageId).toList();
     }
     _thumbnailFutures.remove(imageId);
     _thumbnailPaths.remove(imageId);
@@ -335,7 +354,7 @@ class HomeViewModel extends ChangeNotifier {
           .replaceAll(RegExp(r'\.mp4$'), '');
       final rel = info['relativePath'] as String? ?? '';
       _items = [
-        for (final item in _items)
+        for (final item in _allItems)
           if (!item.isLive &&
               item.displayName.replaceAll(RegExp(r'\.jpg$'), '') == base &&
               item.relativePath == rel)
@@ -361,7 +380,7 @@ class HomeViewModel extends ChangeNotifier {
         relativePath: info['relativePath'] as String? ?? '',
         isLive: false,
       );
-      _items = [..._items, item]
+      _items = [..._allItems, item]
         ..sort((a, b) => b.createTime.compareTo(a.createTime));
     }
     notifyListeners();

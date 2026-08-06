@@ -22,7 +22,8 @@ class RecycleBinScreen extends StatefulWidget {
   State<RecycleBinScreen> createState() => _RecycleBinScreenState();
 }
 
-class _RecycleBinScreenState extends State<RecycleBinScreen> {
+class _RecycleBinScreenState extends State<RecycleBinScreen>
+    with AutomaticKeepAliveClientMixin {
   List<TrashEntry>? _entries;
   String? _error;
   final Map<String, Future<String>> _previews = {};
@@ -147,7 +148,11 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('回收站'),

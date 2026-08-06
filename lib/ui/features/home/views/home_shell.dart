@@ -1,0 +1,142 @@
+import 'package:flutter/material.dart';
+
+import '../../../../data/repositories/live_photo_repository.dart';
+import '../../trash/views/recycle_bin_screen.dart';
+import '../view_models/home_view_model.dart';
+import 'home_screen.dart';
+
+/// Bottom tab shell: All / Live / Trash.
+/// Tabs live inside a PageView so the user can swipe left/right to
+/// switch, or tap the bottom NavigationBar. Visited tabs stay alive
+/// (state + scroll positions preserved) so switching never reloads
+/// the grid or re-scans the photo store.
+///
+/// The selected index is held in a ValueNotifier and consumed only by
+/// the bottom NavigationBar, so page turns never rebuild the PageView
+/// subtree (which would cause a visible hitch mid-swipe).
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key, required this.repository});
+
+  final LivePhotoRepository repository;
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  late final HomeViewModel _viewModel;
+  late final PageController _pageController;
+  final ValueNotifier<int> _indexNotifier = ValueNotifier<int>(0);
+  late final List<Widget> _pages;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel = HomeViewModel(repository: widget.repository)..load();
+    // 预热全部缩略图，使 tab 滑动切换时不重新加载图片。
+    _viewModel.prewarmThumbnails();
+    _pageController = PageController();
+    _pages = [
+      HomeScreen(viewModel: _viewModel, liveOnly: false),
+      HomeScreen(viewModel: _viewModel, liveOnly: true),
+      _RecycleBinGate(
+        repository: widget.repository,
+        onRestored: _viewModel.applyRestored,
+      ),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _viewModel.dispose();
+    _pageController.dispose();
+    _indexNotifier.dispose();
+    super.dispose();
+  }
+
+  void _selectTab(int index) {
+    if (index == _indexNotifier.value) return;
+    _indexNotifier.value = index;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _onPageChanged(int index) {
+    if (index != _indexNotifier.value) {
+      _indexNotifier.value = index;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) {
+        final inSelection = _viewModel.selectionMode;
+        return Scaffold(
+          body: PageView.builder(
+            controller: _pageController,
+            itemCount: 3,
+            allowImplicitScrolling: false,
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, index) =>
+                RepaintBoundary(child: _pages[index]),
+          ),
+          bottomNavigationBar: inSelection
+              ? null
+              : ValueListenableBuilder<int>(
+                  valueListenable: _indexNotifier,
+                  builder: (context, index, _) => NavigationBar(
+                    selectedIndex: index,
+                    onDestinationSelected: _selectTab,
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.photo_library_outlined),
+                        selectedIcon: Icon(Icons.photo_library),
+                        label: '全部',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.motion_photos_on_outlined),
+                        selectedIcon: Icon(Icons.motion_photos_on),
+                        label: 'Live',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.restore_from_trash_outlined),
+                        selectedIcon: Icon(Icons.delete_outline),
+                        label: '回收站',
+                      ),
+                    ],
+                  ),
+                ),
+        );
+      },
+    );
+  }
+}
+
+/// 回收站页面的懒加载门：首次进入时才创建并加载，
+/// 之后保持活在，不重新扫描。
+class _RecycleBinGate extends StatefulWidget {
+  const _RecycleBinGate({required this.repository, required this.onRestored});
+
+  final LivePhotoRepository repository;
+  final void Function(Map<String, dynamic> info) onRestored;
+
+  @override
+  State<_RecycleBinGate> createState() => _RecycleBinGateState();
+}
+
+class _RecycleBinGateState extends State<_RecycleBinGate> {
+  Widget? _child;
+
+  @override
+  Widget build(BuildContext context) {
+    return _child ??= RecycleBinScreen(
+      repository: widget.repository,
+      onRestored: widget.onRestored,
+    );
+  }
+}
