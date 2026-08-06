@@ -80,6 +80,7 @@ class _HomeShellState extends State<HomeShell> {
         return Scaffold(
           body: PageView.builder(
             controller: _pageController,
+            physics: const _SnappyPageScrollPhysics(),
             itemCount: 3,
             allowImplicitScrolling: false,
             onPageChanged: _onPageChanged,
@@ -116,6 +117,25 @@ class _HomeShellState extends State<HomeShell> {
       },
     );
   }
+}
+
+/// 快速定住的页面弹簧：左右滑动放手后约 300ms 停稳，无回弹。
+/// 相比默认弹簧（mass 0.5 / stiffness 100 / ratio 1.1，要 700ms+
+/// 且带回弹）明显更快，消除滑动到底后"飘一下"的卡顿感。
+class _SnappyPageScrollPhysics extends PageScrollPhysics {
+  const _SnappyPageScrollPhysics();
+
+  @override
+  _SnappyPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _SnappyPageScrollPhysics();
+  }
+
+  @override
+  SpringDescription get spring => const SpringDescription(
+        mass: 0.5,
+        stiffness: 400,
+        damping: 28.28,
+      );
 }
 
 /// 回收站页面的懒加载门：首次进入时才创建并加载，
