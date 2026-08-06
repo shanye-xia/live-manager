@@ -98,6 +98,61 @@ class _FakeRepository implements LivePhotoRepository {
   Stream<Map<String, dynamic>> events() => const Stream.empty();
 }
 
+class _FakeTrashRepository extends _FakeRepository {
+  final List<TrashEntry> items = [
+    TrashEntry(
+      id: 't1',
+      originalFileName: 'IMG_DEL_1.jpg',
+      originalRelativePath: 'DCIM/Camera/',
+      mediaType: 'image',
+      size: 1000,
+      dateTaken: DateTime(2026, 8, 3, 12),
+      trashedAt: DateTime(2026, 8, 3, 12, 30),
+    ),
+    TrashEntry(
+      id: 't2',
+      originalFileName: 'IMG_DEL_2.jpg',
+      originalRelativePath: 'DCIM/Camera/',
+      mediaType: 'image',
+      size: 2000,
+      dateTaken: DateTime(2026, 8, 4, 12),
+      trashedAt: DateTime(2026, 8, 4, 12, 30),
+    ),
+  ];
+
+  @override
+  Future<List<TrashEntry>> trashEntries() async => List.of(items);
+
+  @override
+  Future<String> trashPreviewPath(TrashEntry entry, {int size = 512}) async {
+    return '/nonexistent/trash_${entry.id}.jpg';
+  }
+
+  @override
+  Future<Map<String, dynamic>?> restoreTrash(String id) async {
+    final i = items.indexWhere((e) => e.id == id);
+    if (i < 0) return null;
+    final e = items.removeAt(i);
+    return {
+      'mediaType': 'image',
+      'displayName': e.originalFileName,
+      'relativePath': e.originalRelativePath,
+      'size': e.size,
+      'dateTaken': e.trashedAt.millisecondsSinceEpoch,
+      'uri': 'content://media/external/images/media/999',
+      'id': 999,
+      'durationMs': null,
+    };
+  }
+
+  @override
+  Future<bool> permanentDeleteTrash(String id) async {
+    final before = items.length;
+    items.removeWhere((e) => e.id == id);
+    return items.length < before;
+  }
+}
+
 class _FakeGridRepository extends _FakeRepository {
   @override
   Future<List<PhotoItem>> scan() async {
@@ -342,5 +397,58 @@ void main() {
     await tester.fling(find.byType(PageView), const Offset(400, 0), 1200);
     await tester.pumpAndSettle();
     expect(find.text('Live 动态'), findsOneWidget);
+  });
+
+  testWidgets('trash selection: long-press, select-all, batch delete', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeTrashRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('回收站'),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('IMG_DEL_1.jpg'), findsOneWidget);
+    expect(find.text('IMG_DEL_2.jpg'), findsOneWidget);
+
+    // 长按进入多选
+    await tester.longPress(find.text('IMG_DEL_1.jpg'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 1 项'), findsOneWidget);
+
+    // 全选后批量彻底删除（带二次确认）
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2 项'), findsOneWidget);
+
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    expect(find.text('彻底删除选中项？'), findsOneWidget);
+    await tester.tap(find.text('彻底删除').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('回收站为空'), findsOneWidget);
+    expect(find.text('IMG_DEL_1.jpg'), findsNothing);
+  });
+
+  testWidgets('trash restore-all keeps empty state', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeTrashRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+      of: find.byType(NavigationBar),
+      matching: find.text('回收站'),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byIcon(Icons.restore),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('全部恢复？'), findsOneWidget);
+    await tester.tap(find.text('全部恢复'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('回收站为空'), findsOneWidget);
   });
 }

@@ -143,9 +143,9 @@ class LivePhotoPlatformService {
 
   /// 彻底删除回收站条目。
   Future<bool> permanentDeleteTrash(String id) async {
-    return await _channel
-            .invokeMethod<bool>('permanentDeleteTrash', {'id': id}) ??
-        false;
+    final result = await _channel
+        .invokeMapMethod<String, dynamic>('permanentDeleteTrash', {'id': id});
+    return result?['ok'] == true;
   }
 
   /// 原生事件流（权限变化、删除结果等）。
