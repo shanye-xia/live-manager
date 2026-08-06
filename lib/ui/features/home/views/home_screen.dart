@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -30,9 +31,17 @@ class _HomeScreenState extends State<HomeScreen> {
   int _sweepCols = 1;
   int _sweepStartRow = -1;
   int _sweepStartCol = -1;
-  int _sweepLastRow = -1;
-  int _sweepLastCol = -1;
+  Set<int> _sweepRange = {};
   bool _sweepSelectState = false;
+  final GlobalKey _sweepViewportKey = GlobalKey();
+  double _sweepStartScroll = 0;
+  Offset _sweepLastPosition = Offset.zero;
+  Timer? _sweepTimer;
+  int _sweepEdgeZone = 0;
+  double _sweepEdgeStrength = 0;
+  int _sweepPointer = -1;
+  int _lastPointerDown = -1;
+  Set<int> _sweepPreSelected = {};
 
   @override
   void initState() {
@@ -42,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _stopSweepTimer();
     _scrollController.dispose();
     _viewModel.dispose();
     super.dispose();
@@ -124,8 +134,15 @@ class _HomeScreenState extends State<HomeScreen> {
       onRefresh: _viewModel.load,
       child: SizedBox.expand(
         child: Stack(
+          key: _sweepViewportKey,
           children: [
-            LayoutBuilder(
+            Listener(
+              onPointerDown: (e) => _lastPointerDown = e.pointer,
+              onPointerMove: (e) =>
+                  _onSweepPointerMove(e.pointer, e.position),
+              onPointerUp: (e) => _onSweepPointerEnd(e.pointer),
+              onPointerCancel: (e) => _onSweepPointerEnd(e.pointer),
+              child: LayoutBuilder(
                   builder: (context, constraints) {
                     final maxExtent =
                         constraints.maxWidth < 400 ? 120.0 : 160.0;
@@ -169,8 +186,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                   onLongPress: () => _viewModel
                                       .enterSelectionMode(item),
                                   onSweepStart: _startSweep,
-                                  onSweepMove: _onSweepMove,
-                                  onSweepEnd: _endSweep,
                                 );
                               },
                               childCount: _viewModel.items.length,
@@ -180,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     );
                   },
+              ),
             ),
             Positioned(
               top: 0,
@@ -280,7 +296,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _showSnack(parts.isEmpty ? '删除失败' : parts.join('，'));
   }
 
-  /// 开始滑动选择：从已选中项滑出则取消，从未选中项滑出则选中。
+  /// Starts the sweep selection from an anchor tile: from an unselected
+  /// tile selects, from a selected tile deselects.
   void _startSweep(
     int index,
     Offset tileTopLeft,
@@ -296,9 +313,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _sweepCols = cols;
     _sweepStartRow = index ~/ cols;
     _sweepStartCol = index % cols;
-    _sweepLastRow = _sweepStartRow;
-    _sweepLastCol = _sweepStartCol;
+    _sweepPreSelected = Set.of(_viewModel.selectedIds);
     _sweepSelectState = !currentlySelected;
+    _sweepPointer = _lastPointerDown;
+    _sweepStartScroll = _scrollController.hasClients
+        ? _scrollController.offset
+        : 0;
+    _sweepRange = {index};
     if (currentlySelected != _sweepSelectState) {
       _viewModel.setSelection(
         _viewModel.items[index],
@@ -307,72 +328,183 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 滑动更新：起点行内按「起点列→当前列」段选；
-  /// 跨入新行则整行选择/取消；纵向滑动由列表本身翻页。
+  void _onSweepPointerMove(int pointer, Offset position) {
+    if (pointer != _sweepPointer) return;
+    _onSweepMove(position);
+  }
+
+  void _onSweepPointerEnd(int pointer) {
+    if (pointer != _sweepPointer) return;
+    _endSweep();
+  }
+
   void _onSweepMove(Offset globalPosition) {
+    _sweepLastPosition = globalPosition;
+    _updateEdgeAutoScroll(globalPosition);
     final row0Top = _sweepRow0Top;
     final gridLeft = _sweepGridLeft;
     if (row0Top == null || gridLeft == null || _sweepExtent <= 0) return;
     if (_sweepStartRow < 0) return;
+    final scrollDelta = _scrollController.hasClients
+        ? _scrollController.offset - _sweepStartScroll
+        : 0.0;
     final row =
-        ((globalPosition.dy - row0Top + 0.5) / _sweepExtent).floor();
+        ((globalPosition.dy - row0Top + scrollDelta + 0.5) / _sweepExtent)
+            .floor();
     if (row < 0) return;
     final col =
         ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
+    _applyRange(row, col);
+  }
 
+  /// Recomputes the anchor-to-finger band and applies only the delta:
+  /// cells entering the band are toggled to the sweep state, cells
+  /// leaving it are restored to their pre-sweep state.
+  void _applyRange(int row, int col) {
+    final next = <int>{};
+    final cols = _sweepCols;
     if (row == _sweepStartRow) {
-      if (col == _sweepLastCol) return;
-      _sweepLastCol = col;
-      _applySegment(_sweepStartRow, _sweepStartCol, col);
-      return;
-    }
-    if (row == _sweepLastRow) return; // 已整行处理过的行内横向移动不再重复
-
-    if (row > _sweepLastRow) {
-      for (var r = _sweepLastRow + 1; r <= row; r++) {
-        _applyWholeRow(r);
+      final lo = col < _sweepStartCol ? col : _sweepStartCol;
+      final hi = col > _sweepStartCol ? col : _sweepStartCol;
+      for (var c = lo; c <= hi; c++) {
+        final index = _sweepStartRow * cols + c;
+        if (index >= 0 && index < _viewModel.items.length) next.add(index);
       }
     } else {
-      for (var r = _sweepLastRow - 1; r >= row; r--) {
-        _applyWholeRow(r);
+      final movingDown = row > _sweepStartRow;
+      final topRow = movingDown ? _sweepStartRow : row;
+      final bottomRow = movingDown ? row : _sweepStartRow;
+      for (var r = topRow; r <= bottomRow; r++) {
+        int c0;
+        int c1;
+        if (r == _sweepStartRow) {
+          // Anchor row: from the anchor column toward the movement.
+          c0 = movingDown ? _sweepStartCol : 0;
+          c1 = movingDown ? cols - 1 : _sweepStartCol;
+        } else if (r == row) {
+          // Current row: from the row edge up to the current column.
+          c0 = movingDown ? 0 : col;
+          c1 = movingDown ? col : cols - 1;
+        } else {
+          c0 = 0;
+          c1 = cols - 1;
+        }
+        for (var c = c0; c <= c1; c++) {
+          final index = r * cols + c;
+          if (index >= 0 && index < _viewModel.items.length) next.add(index);
+        }
       }
     }
-    _sweepLastRow = row;
-    _sweepLastCol = col;
+    if (next.length == _sweepRange.length &&
+        next.containsAll(_sweepRange)) {
+      return;
+    }
+    final toEnter = next.difference(_sweepRange);
+    final toLeave = _sweepRange.difference(next);
+    final changes = <(PhotoItem, bool)>[
+      for (final i in toEnter) (_viewModel.items[i], _sweepSelectState),
+      for (final i in toLeave)
+        (
+          _viewModel.items[i],
+          _sweepPreSelected.contains(_viewModel.items[i].imageId),
+        ),
+    ];
+    _sweepRange = next;
+    _viewModel.applySelectionDelta(changes);
   }
 
-  void _applySegment(int row, int fromCol, int toCol) {
-    final lo = fromCol < toCol ? fromCol : toCol;
-    final hi = fromCol > toCol ? fromCol : toCol;
-    for (var c = lo; c <= hi; c++) {
-      final index = row * _sweepCols + c;
-      if (index >= _viewModel.items.length) break;
-      _viewModel.setSelection(
-        _viewModel.items[index],
-        selected: _sweepSelectState,
+  /// Edge auto-scroll: hold near the top/bottom edge to keep scrolling.
+  void _updateEdgeAutoScroll(Offset globalPosition) {
+    final box = _sweepViewportKey.currentContext?.findRenderObject();
+    if (box is! RenderBox) {
+      _stopSweepTimer();
+      return;
+    }
+    final top = box.localToGlobal(Offset.zero).dy;
+    final bottom = top + box.size.height;
+    const edge = 72.0;
+    final dy = globalPosition.dy;
+    int zone = 0;
+    double strength = 0;
+    if (dy <= top + edge) {
+      zone = -1;
+      strength = ((top + edge - dy) / edge).clamp(0.0, 1.0).toDouble();
+    } else if (dy >= bottom - edge) {
+      zone = 1;
+      strength = ((dy - (bottom - edge)) / edge).clamp(0.0, 1.0).toDouble();
+    }
+    _sweepEdgeZone = zone;
+    _sweepEdgeStrength = strength;
+    if (zone == 0) {
+      _stopSweepTimer();
+    } else {
+      _sweepTimer ??= Timer.periodic(
+        const Duration(milliseconds: 20),
+        (_) => _tickSweepAutoScroll(),
       );
     }
   }
 
-  void _applyWholeRow(int row) {
+  void _tickSweepAutoScroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    if (_sweepPointer < 0) {
+      _stopSweepTimer();
+      return;
+    }
+    final zone = _sweepEdgeZone;
+    if (zone == 0) {
+      _stopSweepTimer();
+      return;
+    }
+    final position = _scrollController.position;
+    final delta = 18.0 * _sweepEdgeStrength * zone;
+    final target = (position.pixels + delta)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if (target == position.pixels) {
+      _stopSweepTimer();
+      return;
+    }
+    position.jumpTo(target);
+    _applySweepAt(_sweepLastPosition);
+  }
+
+  /// Applies the band under the stationary finger while auto-scrolling.
+  void _applySweepAt(Offset globalPosition) {
+    final row0Top = _sweepRow0Top;
+    final gridLeft = _sweepGridLeft;
+    if (row0Top == null || gridLeft == null || _sweepExtent <= 0) return;
+    if (_sweepStartRow < 0) return;
+    if (!_scrollController.hasClients) return;
+    final scrollDelta = _scrollController.offset - _sweepStartScroll;
+    final row =
+        ((globalPosition.dy - row0Top + scrollDelta + 0.5) / _sweepExtent)
+            .floor();
     if (row < 0) return;
-    final start = row * _sweepCols;
-    if (start >= _viewModel.items.length) return;
-    final end = (start + _sweepCols).clamp(0, _viewModel.items.length);
-    for (var i = start; i < end; i++) {
-      _viewModel.setSelection(
-        _viewModel.items[i],
-        selected: _sweepSelectState,
-      );
-    }
+    final col =
+        ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
+    _applyRange(row, col);
+  }
+
+  void _stopSweepTimer() {
+    _sweepTimer?.cancel();
+    _sweepTimer = null;
   }
 
   void _endSweep() {
+    _stopSweepTimer();
+    _sweepPointer = -1;
+    _lastPointerDown = -1;
+    _sweepPreSelected = {};
+    _sweepRange = {};
     _sweepRow0Top = null;
     _sweepGridLeft = null;
     _sweepStartRow = -1;
-    _sweepLastRow = -1;
-    _sweepLastCol = -1;
+    _sweepStartCol = -1;
+    _sweepStartScroll = 0;
+    _sweepLastPosition = Offset.zero;
+    _sweepEdgeZone = 0;
+    _sweepEdgeStrength = 0;
   }
 
   Future<void> _confirmDeleteLiveParts() async {
@@ -719,8 +851,6 @@ class _PhotoTile extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     required this.onSweepStart,
-    required this.onSweepMove,
-    required this.onSweepEnd,
   });
 
   final int index;
@@ -737,8 +867,6 @@ class _PhotoTile extends StatelessWidget {
     bool currentlySelected,
   )
       onSweepStart;
-  final ValueChanged<Offset> onSweepMove;
-  final VoidCallback onSweepEnd;
 
   void _startSweepFromContext(BuildContext context) {
     final box = context.findRenderObject();
@@ -760,16 +888,10 @@ class _PhotoTile extends StatelessWidget {
         onLongPress();
         _startSweepFromContext(context);
       },
-      onLongPressMoveUpdate: (details) => onSweepMove(details.globalPosition),
-      onLongPressEnd: (_) => onSweepEnd(),
-      onLongPressCancel: onSweepEnd,
       onHorizontalDragStart: (_) {
         if (!selectionMode) return;
         _startSweepFromContext(context);
       },
-      onHorizontalDragUpdate: (details) => onSweepMove(details.globalPosition),
-      onHorizontalDragEnd: (_) => onSweepEnd(),
-      onHorizontalDragCancel: onSweepEnd,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -914,25 +1036,40 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = destructive ? Colors.redAccent : Colors.white;
+    final scheme = Theme.of(context).colorScheme;
+    final background =
+        destructive ? Colors.redAccent : scheme.secondaryContainer;
+    final foreground =
+        destructive ? Colors.white : scheme.onSecondaryContainer;
     return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: color, size: 22),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: color, fontSize: 12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: Material(
+          color: background,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: foreground, size: 22),
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

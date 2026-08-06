@@ -240,6 +240,31 @@ void main() {
     expect(find.text('已选 8 项'), findsOneWidget);
   });
 
+  testWidgets('sweep down then back up deselects crossed rows', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    final textTopLeft = tester.getTopLeft(find.text('LIVE'));
+    final tile1Center = textTopLeft + const Offset(226.4, 70.8);
+    final gesture = await tester.startGesture(tile1Center);
+    await gesture.moveBy(const Offset(60, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(140, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 180));
+    await tester.pump();
+    expect(find.text('已选 8 项'), findsOneWidget);
+    await gesture.moveBy(const Offset(0, -180));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选 3 项'), findsOneWidget);
+  });
+
   testWidgets('vertical swipe pages without selecting', (WidgetTester tester) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();

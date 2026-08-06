@@ -114,6 +114,26 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Applies a batch of selection changes from sweep gestures in one
+  /// notification, avoiding one rebuild per cell for large ranges.
+  void applySelectionDelta(Iterable<(PhotoItem, bool)> changes) {
+    if (!_selectionMode) return;
+    var changed = false;
+    for (final (item, selected) in changes) {
+      final contains = _selectedIds.contains(item.imageId);
+      if (selected == contains) continue;
+      if (selected) {
+        _selectedIds.add(item.imageId);
+        if (item.isLive) _selectedLiveCount++;
+      } else {
+        _selectedIds.remove(item.imageId);
+        if (item.isLive) _selectedLiveCount--;
+      }
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
+
   void toggleSelection(PhotoItem item) {
     if (!_selectionMode) return;
     if (!_selectedIds.add(item.imageId)) {
