@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
 import 'package:live_manager/data/repositories/live_photo_repository.dart';
 import 'package:live_manager/domain/models/photo_item.dart';
 import 'package:live_manager/domain/models/trash_entry.dart';
@@ -113,5 +114,24 @@ void main() {
     expect(find.textContaining('图片'), findsOneWidget);
     expect(find.textContaining('视频'), findsOneWidget);
     expect(find.text('LIVE'), findsOneWidget);
+  });
+
+  testWidgets('selection mode back exits selection mode instead of app', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
+    await tester.pumpAndSettle();
+
+    // long-press first LIVE photo to enter selection mode
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.close), findsOneWidget);
+
+    // simulate system back button
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    // still on home screen, selection mode exited
+    expect(find.text('Live Manager'), findsOneWidget);
+    expect(find.byIcon(Icons.close), findsNothing);
   });
 }

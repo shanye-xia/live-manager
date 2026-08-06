@@ -42,38 +42,47 @@ class _HomeScreenState extends State<HomeScreen> {
       listenable: _viewModel,
       builder: (context, _) {
         final selectionMode = _viewModel.selectionMode;
-        return Scaffold(
-          appBar: AppBar(
-            leading: selectionMode
-                ? IconButton(
-                    tooltip: '取消',
-                    onPressed: _viewModel.exitSelectionMode,
-                    icon: const Icon(Icons.close),
+        // 多选模式下拦截系统返回：先退出选择模式，再按一次才退出应用。
+        return PopScope(
+          canPop: !selectionMode,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && selectionMode) {
+              _viewModel.exitSelectionMode();
+            }
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              leading: selectionMode
+                  ? IconButton(
+                      tooltip: '取消',
+                      onPressed: _viewModel.exitSelectionMode,
+                      icon: const Icon(Icons.close),
+                    )
+                  : null,
+              title: Text(
+                selectionMode
+                    ? '已选 ${_viewModel.selectedCount} 项'
+                    : 'Live Manager',
+              ),
+              centerTitle: false,
+              actions: [
+                if (!selectionMode)
+                  IconButton(
+                    tooltip: '回收站',
+                    onPressed: _openRecycleBin,
+                    icon: const Icon(Icons.restore_from_trash_outlined),
+                  ),
+              ],
+            ),
+            body: _buildBody(),
+            bottomNavigationBar: selectionMode
+                ? _SelectionActionBar(
+                    allSelected: _viewModel.allVisibleSelected,
+                    onToggleSelectAll: _viewModel.toggleSelectAllVisible,
+                    onDelete: _confirmBatchDelete,
                   )
                 : null,
-            title: Text(
-              selectionMode
-                  ? '已选 ${_viewModel.selectedCount} 项'
-                  : 'Live Manager',
-            ),
-            centerTitle: false,
-            actions: [
-              if (!selectionMode)
-                IconButton(
-                  tooltip: '回收站',
-                  onPressed: _openRecycleBin,
-                  icon: const Icon(Icons.restore_from_trash_outlined),
-                ),
-            ],
           ),
-          body: _buildBody(),
-          bottomNavigationBar: selectionMode
-              ? _SelectionActionBar(
-                  allSelected: _viewModel.allVisibleSelected,
-                  onToggleSelectAll: _viewModel.toggleSelectAllVisible,
-                  onDelete: _confirmBatchDelete,
-                )
-              : null,
         );
       },
     );
