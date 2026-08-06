@@ -38,39 +38,63 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Live Manager'),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            tooltip: '回收站',
-            onPressed: _openRecycleBin,
-            icon: const Icon(Icons.restore_from_trash_outlined),
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) {
+        final selectionMode = _viewModel.selectionMode;
+        return Scaffold(
+          appBar: AppBar(
+            leading: selectionMode
+                ? IconButton(
+                    tooltip: '取消',
+                    onPressed: _viewModel.exitSelectionMode,
+                    icon: const Icon(Icons.close),
+                  )
+                : null,
+            title: Text(
+              selectionMode
+                  ? '已选 ${_viewModel.selectedCount} 项'
+                  : 'Live Manager',
+            ),
+            centerTitle: false,
+            actions: [
+              if (!selectionMode)
+                IconButton(
+                  tooltip: '回收站',
+                  onPressed: _openRecycleBin,
+                  icon: const Icon(Icons.restore_from_trash_outlined),
+                ),
+            ],
           ),
-        ],
-      ),
-      body: ListenableBuilder(
-        listenable: _viewModel,
-        builder: (context, _) {
-          switch (_viewModel.status) {
-            case HomeStatus.initial:
-            case HomeStatus.loading:
-              return const Center(child: CircularProgressIndicator());
-            case HomeStatus.error:
-              return _ErrorView(
-                message: _viewModel.error ?? '未知错误',
-                onRetry: _viewModel.load,
-              );
-            case HomeStatus.ready:
-              if (_viewModel.items.isEmpty) {
-                return _EmptyView(onRefresh: _viewModel.load);
-              }
-              return _buildGrid();
-          }
-        },
-      ),
+          body: _buildBody(),
+          bottomNavigationBar: selectionMode
+              ? _SelectionActionBar(
+                  allSelected: _viewModel.allVisibleSelected,
+                  onToggleSelectAll: _viewModel.toggleSelectAllVisible,
+                  onDelete: _confirmBatchDelete,
+                )
+              : null,
+        );
+      },
     );
+  }
+
+  Widget _buildBody() {
+    switch (_viewModel.status) {
+      case HomeStatus.initial:
+      case HomeStatus.loading:
+        return const Center(child: CircularProgressIndicator());
+      case HomeStatus.error:
+        return _ErrorView(
+          message: _viewModel.error ?? '未知错误',
+          onRetry: _viewModel.load,
+        );
+      case HomeStatus.ready:
+        if (_viewModel.items.isEmpty) {
+          return _EmptyView(onRefresh: _viewModel.load);
+        }
+        return _buildGrid();
+    }
   }
 
   Widget _buildGrid() {
@@ -112,7 +136,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                   item: item,
                                   thumbnailFuture:
                                       _viewModel.thumbnailPathFor(item),
-                                  onTap: () => _openDetail(item),
+                                  selectionMode: _viewModel.selectionMode,
+                                  selected: _viewModel.selectedIds.contains(
+                                    item.imageId,
+                                  ),
+                                  onTap: () => _viewModel.selectionMode
+                                      ? _viewModel.toggleSelection(item)
+                                      : _openDetail(item),
+                                  onLongPress: () => _viewModel
+                                      .enterSelectionMode(item),
                                 );
                               },
                               childCount: _viewModel.items.length,
@@ -179,6 +211,89 @@ class _HomeScreenState extends State<HomeScreen> {
             if (mounted) _viewModel.applyRestored(info);
           },
         ),
+      ),
+    );
+  }
+
+  Future<void> _confirmBatchDelete() async {
+    final count = _viewModel.selectedCount;
+    if (count == 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('删除 $count 项？'),
+        content: const Text('删除后可在回收站恢复。'),
+        actions: [
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final result = await _withProgress(
+      '正在删除 $count 项…',
+      _viewModel.deleteSelected,
+    );
+    if (!mounted) return;
+    final parts = <String>[
+      if (result.deleted > 0) '已删除 ${result.deleted} 项',
+      if (result.videoOnly > 0) '${result.videoOnly} 项仅删动态',
+      if (result.failed > 0) '${result.failed} 项失败',
+    ];
+    _showSnack(parts.isEmpty ? '删除失败' : parts.join('，'));
+  }
+
+  Future<T> _withProgress<T>(
+    String message,
+    Future<T> Function() action,
+  ) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      return await action();
+    } finally {
+      if (mounted) navigator.pop();
+    }
+  }
+
+  void _showSnack(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        content: Text(message),
       ),
     );
   }
@@ -436,17 +551,24 @@ class _PhotoTile extends StatelessWidget {
   const _PhotoTile({
     required this.item,
     required this.thumbnailFuture,
+    required this.selectionMode,
+    required this.selected,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final PhotoItem item;
   final Future<String> thumbnailFuture;
+  final bool selectionMode;
+  final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -475,7 +597,98 @@ class _PhotoTile extends StatelessWidget {
               right: 6,
               child: _VideoSizeBadge(size: item.videoSize ?? 0),
             ),
+          if (selectionMode) ...[
+            Positioned.fill(
+              child: AnimatedOpacity(
+                opacity: selected ? 1 : 0,
+                duration: const Duration(milliseconds: 150),
+                child: ColoredBox(color: Colors.black.withValues(alpha: 0.35)),
+              ),
+            ),
+            Positioned(
+              top: 6,
+              right: 6,
+              child: _SelectionBadge(selected: selected),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// 多选模式右上角圆圈 / 对勾。
+class _SelectionBadge extends StatelessWidget {
+  const _SelectionBadge({required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? Theme.of(context).colorScheme.primary : null,
+        border: Border.all(
+          color: selected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.white,
+          width: 2,
+        ),
+      ),
+      child: selected
+          ? const Icon(Icons.check, size: 16, color: Colors.white)
+          : null,
+    );
+  }
+}
+
+/// 底部批量操作栏（全选 / 删除）。
+class _SelectionActionBar extends StatelessWidget {
+  const _SelectionActionBar({
+    required this.allSelected,
+    required this.onToggleSelectAll,
+    required this.onDelete,
+  });
+
+  final bool allSelected;
+  final VoidCallback onToggleSelectAll;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onToggleSelectAll,
+                  icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
+                  label: Text(allSelected ? '取消全选' : '全选'),
+                ),
+              ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('删除'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
