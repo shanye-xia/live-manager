@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:live_manager/data/repositories/live_photo_repository.dart';
 import 'package:live_manager/domain/models/photo_item.dart';
 import 'package:live_manager/domain/models/trash_entry.dart';
@@ -97,6 +98,30 @@ class _FakeRepository implements LivePhotoRepository {
   Stream<Map<String, dynamic>> events() => const Stream.empty();
 }
 
+class _FakeGridRepository extends _FakeRepository {
+  @override
+  Future<List<PhotoItem>> scan() async {
+    return [
+      for (var i = 0; i < 12; i++)
+        PhotoItem(
+          imageId: i + 1,
+          imageUri: 'content://media/external/images/media/${i + 1}',
+          displayName: 'IMG_${i + 1}.jpg',
+          createTime: DateTime(2026, 8, 1).add(Duration(minutes: i)),
+          imageSize: 1000 + i,
+          relativePath: 'DCIM/Camera/',
+          videoId: i == 0 ? 1000 : null,
+          videoUri: i == 0
+              ? 'content://media/external/video/media/1000'
+              : null,
+          videoSize: i == 0 ? 2000 : null,
+          videoDurationMs: i == 0 ? 1500 : null,
+          isLive: i == 0,
+        ),
+    ];
+  }
+}
+
 void main() {
   testWidgets('首页展示全部照片与 LIVE 角标', (WidgetTester tester) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
@@ -133,5 +158,128 @@ void main() {
     // still on home screen, selection mode exited
     expect(find.text('Live Manager'), findsOneWidget);
     expect(find.byIcon(Icons.close), findsNothing);
+  });
+
+  testWidgets('long-press and drag over grid selects multiple photos', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
+    await tester.pumpAndSettle();
+
+    final start = tester.getCenter(find.text('LIVE'));
+    final gesture = await tester.startGesture(start);
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+    await gesture.moveTo(start + const Offset(160, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选 2 项'), findsOneWidget);
+  });
+
+  testWidgets('selection bar hides delete-live button when no live selected', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除Live部分'), findsOneWidget);
+    expect(find.text('全选'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
+
+    // 取消选中 Live 图，只剩普通图未选，隐藏快捷键
+    await tester.tap(find.text('LIVE'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除Live部分'), findsNothing);
+  });
+
+  testWidgets('horizontal swipe in selection mode selects', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    // 长按进入多选
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    // 松开后，从第二张（未选中）开始横向滑动，划过即选中
+    final textTopLeft = tester.getTopLeft(find.text('LIVE'));
+    final tile1Center = textTopLeft + const Offset(226.4, 70.8);
+    final gesture = await tester.startGesture(tile1Center);
+    await gesture.moveBy(const Offset(60, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(140, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // 起点格(长按) + 第2、3张段选 = 3
+    expect(find.text('已选 3 项'), findsOneWidget);
+  });
+
+  testWidgets('diagonal sweep selects whole rows crossed', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    // 从第二张开始横向滑动，再带纵向偏移滑入下一行，下一行整行选中
+    final textTopLeft = tester.getTopLeft(find.text('LIVE'));
+    final tile1Center = textTopLeft + const Offset(226.4, 70.8);
+    final gesture = await tester.startGesture(tile1Center);
+    await gesture.moveBy(const Offset(60, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(140, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 180));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // 起点格(长按选中) + 第1行段选 2 张 + 第2行整行 5 张 = 8
+    expect(find.text('已选 8 项'), findsOneWidget);
+  });
+
+  testWidgets('sweep down then back up deselects crossed rows', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+
+    final textTopLeft = tester.getTopLeft(find.text('LIVE'));
+    final tile1Center = textTopLeft + const Offset(226.4, 70.8);
+    final gesture = await tester.startGesture(tile1Center);
+    await gesture.moveBy(const Offset(60, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(140, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 180));
+    await tester.pump();
+    expect(find.text('已选 8 项'), findsOneWidget);
+    await gesture.moveBy(const Offset(0, -180));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选 3 项'), findsOneWidget);
+  });
+
+  testWidgets('vertical swipe pages without selecting', (WidgetTester tester) async {
+    await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('LIVE'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 1 项'), findsOneWidget);
+
+    final before = tester.getTopLeft(find.text('LIVE')).dy;
+    await tester.drag(find.text('LIVE'), const Offset(0, -300),
+        warnIfMissed: false);
+    await tester.pumpAndSettle();
+    final after = tester.getTopLeft(find.text('LIVE')).dy;
+
+    expect(after, lessThan(before)); // 列表向上翻页
+    expect(find.text('已选 1 项'), findsOneWidget); // 纵向滑动不选中
   });
 }
