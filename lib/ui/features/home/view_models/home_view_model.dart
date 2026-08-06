@@ -72,6 +72,16 @@ class HomeViewModel extends ChangeNotifier {
       .where((item) => item.isLive)
       .fold<int>(0, (sum, item) => sum + (item.videoSize ?? 0));
 
+  /// 选中项的总大小（照片 + 动态视频）。
+  int get selectedTotalBytes => _allItems
+      .where((item) => _selectedIds.contains(item.imageId))
+      .fold<int>(0, (sum, item) => sum + item.totalSize);
+
+  /// 选中 Live 项的动态视频部分大小。
+  int get selectedLiveVideoBytes => _allItems
+      .where((item) => _selectedIds.contains(item.imageId) && item.isLive)
+      .fold<int>(0, (sum, item) => sum + (item.videoSize ?? 0));
+
   bool allVisibleSelected(List<PhotoItem> visible) {
     return visible.isNotEmpty &&
         visible.every((e) => _selectedIds.contains(e.imageId));

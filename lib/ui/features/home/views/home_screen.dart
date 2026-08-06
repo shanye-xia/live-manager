@@ -79,26 +79,33 @@ class _HomeScreenState extends State<HomeScreen>
           child: Scaffold(
             appBar: AppBar(
               leading: selectionMode
-                  ? IconButton(
-                      tooltip: '取消',
-                      onPressed: widget.viewModel.exitSelectionMode,
-                      icon: const Icon(Icons.close),
+                  ? TextButton(
+                      onPressed: () => widget.viewModel
+                          .toggleSelectAllVisible(_visibleItems),
+                      child: Text(
+                        widget.viewModel.allVisibleSelected(_visibleItems)
+                            ? '取消全选'
+                            : '全选',
+                      ),
                     )
                   : null,
-              title: Text(
-                selectionMode
-                    ? '已选 ${widget.viewModel.selectedCount} 项'
-                    : (widget.liveOnly ? 'Live 动态' : 'Live Manager'),
-              ),
-              centerTitle: false,
+              title: selectionMode
+                  ? _SelectionSummary(viewModel: widget.viewModel)
+                  : Text(widget.liveOnly ? 'Live 动态' : 'Live Manager'),
+              centerTitle: selectionMode,
+              actions: selectionMode
+                  ? [
+                      TextButton(
+                        onPressed: widget.viewModel.exitSelectionMode,
+                        child: const Text('取消'),
+                      ),
+                    ]
+                  : null,
             ),
             body: _buildBody(),
             bottomNavigationBar: selectionMode
                 ? _SelectionActionBar(
-                    allSelected: widget.viewModel.allVisibleSelected(_visibleItems),
                     showDeleteLive: widget.viewModel.selectedLiveCount > 0,
-                    onToggleSelectAll: () => widget.viewModel
-                        .toggleSelectAllVisible(_visibleItems),
                     onDeleteLive: _confirmDeleteLiveParts,
                     onDelete: _confirmBatchDelete,
                   )
@@ -251,7 +258,33 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: Text('删除 $count 项？'),
-        content: const Text('删除后可在回收站恢复。'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '共 ${formatBytes(widget.viewModel.selectedTotalBytes)}',
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            if (widget.viewModel.selectedLiveVideoBytes > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                '含 Live 动态 ${formatBytes(widget.viewModel.selectedLiveVideoBytes)}'
+                '（${widget.viewModel.selectedLiveCount} 张）',
+              ),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              '删除后可在回收站恢复。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
         actions: [
           FilledButton.tonal(
             onPressed: () => Navigator.of(context).pop(false),
@@ -501,9 +534,27 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除 Live 动态视频？'),
-        content: Text(
-          '将删除 $liveCount 张 Live 图的动态视频，'
-          '照片保留；普通照片不受影响。',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '共 ${formatBytes(widget.viewModel.selectedLiveVideoBytes)}',
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text('将删除 $liveCount 张 Live 图的动态视频，照片保留。'),
+            const SizedBox(height: 12),
+            Text(
+              '普通照片不受影响。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
         ),
         actions: [
           FilledButton.tonal(
@@ -979,19 +1030,48 @@ class _SelectionBadge extends StatelessWidget {
   }
 }
 
+/// 选择模式顶部信息：选中数量 + 总大小 + Live 动态大小。
+class _SelectionSummary extends StatelessWidget {
+  const _SelectionSummary({required this.viewModel});
+
+  final HomeViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = viewModel.selectedTotalBytes;
+    final liveVideo = viewModel.selectedLiveVideoBytes;
+    final sizeText = liveVideo > 0
+        ? '共 ${formatBytes(total)} · Live 动态 ${formatBytes(liveVideo)}'
+        : '共 ${formatBytes(total)}';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          viewModel.selectedLiveCount > 0
+              ? '已选 ${viewModel.selectedCount} 项 · Live ${viewModel.selectedLiveCount}'
+              : '已选 ${viewModel.selectedCount} 项',
+        ),
+        Text(
+          sizeText,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 底部批量操作栏（全选 / 删除）。
 class _SelectionActionBar extends StatelessWidget {
   const _SelectionActionBar({
-    required this.allSelected,
     required this.showDeleteLive,
-    required this.onToggleSelectAll,
     required this.onDeleteLive,
     required this.onDelete,
   });
 
-  final bool allSelected;
   final bool showDeleteLive;
-  final VoidCallback onToggleSelectAll;
   final VoidCallback onDeleteLive;
   final VoidCallback onDelete;
 
@@ -1006,11 +1086,6 @@ class _SelectionActionBar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Row(
             children: [
-              _ActionButton(
-                icon: allSelected ? Icons.deselect : Icons.select_all,
-                label: allSelected ? '取消全选' : '全选',
-                onTap: onToggleSelectAll,
-              ),
               if (showDeleteLive)
                 _ActionButton(
                   icon: Icons.movie_outlined,
