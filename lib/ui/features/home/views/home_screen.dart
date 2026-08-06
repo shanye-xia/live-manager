@@ -26,6 +26,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
   final ScrollController _scrollController = ScrollController();
+  bool _showTopButton = false;
+  double _lastScrollPixels = 0;
+  Timer? _topButtonTimer;
+  double _summaryHeight = 56.0;
+  Timer? _summaryTimer;
+  bool _animatingToTop = false;
 
   // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
   double? _sweepRow0Top;
@@ -37,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen>
   Set<int> _sweepRange = {};
   bool _sweepSelectState = false;
   final GlobalKey _sweepViewportKey = GlobalKey();
+  final GlobalKey _summaryKey = GlobalKey();
   double _sweepStartScroll = 0;
   Offset _sweepLastPosition = Offset.zero;
   Timer? _sweepTimer;
@@ -52,10 +59,67 @@ class _HomeScreenState extends State<HomeScreen>
       widget.liveOnly ? widget.viewModel.liveItems : widget.viewModel.items;
 
   @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onGridScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureSummary());
+  }
+
+  void _measureSummary() {
+    if (!mounted) return;
+    final size = _summaryKey.currentContext?.size;
+    if (size == null) return;
+    if ((size.height - _summaryHeight).abs() < 0.5) return;
+    setState(() => _summaryHeight = size.height);
+  }
+
+  @override
   void dispose() {
     _stopSweepTimer();
+    _topButtonTimer?.cancel();
+    _summaryTimer?.cancel();
+    _scrollController.removeListener(_onGridScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onGridScroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    final delta = offset - _lastScrollPixels;
+    _lastScrollPixels = offset;
+    if (_animatingToTop) return;
+    if (widget.viewModel.selectionMode || offset < 400) {
+      _setTopButtonVisible(false);
+      return;
+    }
+    // 下滑（内容向顶部滚动）时显示；向上浏览深处时不打扰。
+    if (delta > -8) return;
+    _setTopButtonVisible(true);
+    _topButtonTimer?.cancel();
+    _topButtonTimer = Timer(
+      const Duration(seconds: 2),
+      () => _setTopButtonVisible(false),
+    );
+  }
+
+  void _setTopButtonVisible(bool value) {
+    if (_showTopButton == value) return;
+    setState(() => _showTopButton = value);
+  }
+
+  void _scrollToTop() {
+    _topButtonTimer?.cancel();
+    _setTopButtonVisible(false);
+    if (!_scrollController.hasClients) return;
+    _animatingToTop = true;
+    _scrollController
+        .animateTo(
+          0,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+        )
+        .whenComplete(() => _animatingToTop = false);
   }
 
   @override
@@ -135,6 +199,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildGrid() {
+    // 信息栏收起时的高度：轨道起点与图片区顶部对齐。
+    final summaryHeight = _summaryHeight;
     return RefreshIndicator(
       onRefresh: widget.viewModel.load,
       child: SizedBox.expand(
@@ -157,6 +223,8 @@ class _HomeScreenState extends State<HomeScreen>
                       slivers: [
                         SliverToBoxAdapter(
                           child: _SummaryBar(
+                            key: _summaryKey,
+                            onExpandedChanged: _onSummaryExpandedChanged,
                             liveOnly: widget.liveOnly,
                             count: _visibleItems.length,
                             liveCount: widget.viewModel.liveCount,
@@ -209,11 +277,46 @@ class _HomeScreenState extends State<HomeScreen>
               bottom: 0,
               child: LayoutBuilder(
                 builder: (context, railConstraints) {
-                  return _GridScrollRail(
-                    controller: _scrollController,
-                    trackHeight: railConstraints.maxHeight,
+                  final available = (railConstraints.maxHeight - summaryHeight)
+                      .clamp(0.0, railConstraints.maxHeight);
+                  final trackHeight = available;
+                  return Padding(
+                    padding: EdgeInsets.only(top: summaryHeight),
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: SizedBox(
+                        width: _GridScrollRail.railWidth,
+                        height: trackHeight,
+                        child: _GridScrollRail(
+                          controller: _scrollController,
+                          trackHeight: trackHeight,
+                        ),
+                      ),
+                    ),
                   );
                 },
+              ),
+            ),
+            Positioned(
+              right: 56,
+              bottom: 18,
+              child: IgnorePointer(
+                ignoring: !_showTopButton,
+                child: AnimatedOpacity(
+                  opacity: _showTopButton ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: AnimatedScale(
+                    scale: _showTopButton ? 1 : 0.6,
+                    duration: const Duration(milliseconds: 180),
+                    child: FloatingActionButton.small(
+                      heroTag: 'backToTop-${widget.liveOnly}',
+                      onPressed: _scrollToTop,
+                      tooltip: '回到顶部',
+                      child: const Icon(Icons.arrow_upward),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -318,6 +421,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Starts the sweep selection from an anchor tile: from an unselected
   /// tile selects, from a selected tile deselects.
+  void _onSummaryExpandedChanged(bool expanded) {
+    setState(() {});
+    _summaryTimer?.cancel();
+    _summaryTimer = Timer(
+      const Duration(milliseconds: 260),
+      _measureSummary,
+    );
+  }
+
   void _startSweep(
     int index,
     Offset tileTopLeft,
@@ -631,12 +743,15 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-/// 系统相册式可拖动竖向滚动条：整条轨道可点按/拖动跳转。
+/// 竖向滚动条：直接拖动跳转，单击不跳转（避免误触）。
 class _GridScrollRail extends StatefulWidget {
   const _GridScrollRail({
     required this.controller,
     required this.trackHeight,
   });
+
+  /// 轨道触控区宽度。
+  static const double railWidth = 48;
 
   final ScrollController controller;
   final double trackHeight;
@@ -646,8 +761,7 @@ class _GridScrollRail extends StatefulWidget {
 }
 
 class _GridScrollRailState extends State<_GridScrollRail> {
-  static const double _railWidth = 26;
-  static const double _thumbMinHeight = 40;
+  static const double _thumbMinHeight = 48;
 
   double _maxExtent = 0;
   double _thumbHeight = _thumbMinHeight;
@@ -700,21 +814,10 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onVerticalDragUpdate: (details) => _jumpTo(details.localPosition),
-      onTapDown: (details) => _jumpTo(details.localPosition),
       child: SizedBox(
-        width: _railWidth,
+        width: _GridScrollRail.railWidth,
         child: Stack(
           children: [
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
             AnimatedPositioned(
               duration: const Duration(milliseconds: 120),
               top: _thumbTop,
@@ -723,13 +826,13 @@ class _GridScrollRailState extends State<_GridScrollRail> {
               height: _thumbHeight,
               child: Center(
                 child: Container(
-                  width: 5,
+                  width: 12,
                   decoration: BoxDecoration(
                     color: Theme.of(context)
                         .colorScheme
                         .primary
-                        .withValues(alpha: 0.65),
-                    borderRadius: BorderRadius.circular(3),
+                        .withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                 ),
               ),
@@ -743,7 +846,9 @@ class _GridScrollRailState extends State<_GridScrollRail> {
 
 class _SummaryBar extends StatefulWidget {
   const _SummaryBar({
+    super.key,
     this.liveOnly = false,
+    this.onExpandedChanged,
     required this.count,
     required this.liveCount,
     required this.totalBytes,
@@ -752,6 +857,7 @@ class _SummaryBar extends StatefulWidget {
   });
 
   final bool liveOnly;
+  final ValueChanged<bool>? onExpandedChanged;
   final int count;
   final int liveCount;
   final int totalBytes;
@@ -775,7 +881,10 @@ class _SummaryBarState extends State<_SummaryBar> {
         borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
+          onTap: () {
+            setState(() => _expanded = !_expanded);
+            widget.onExpandedChanged?.call(_expanded);
+          },
           child: AnimatedSize(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOut,
