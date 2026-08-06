@@ -23,14 +23,16 @@ class _HomeScreenState extends State<HomeScreen> {
   late final HomeViewModel _viewModel;
   final ScrollController _scrollController = ScrollController();
 
-  // ---- 滑动多选：长按后拖动，划过自动选中/取消 ----
-  double? _dragRow0Top;
-  double? _dragGridLeft;
-  double _dragExtent = 0;
-  int _dragCols = 1;
-  int _dragLastIndex = -1;
-  bool _dragSelectState = false;
-  double _dragStartScroll = 0;
+  // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
+  double? _sweepRow0Top;
+  double? _sweepGridLeft;
+  double _sweepExtent = 0;
+  int _sweepCols = 1;
+  int _sweepStartRow = -1;
+  int _sweepStartCol = -1;
+  int _sweepLastRow = -1;
+  int _sweepLastCol = -1;
+  bool _sweepSelectState = false;
 
   @override
   void initState() {
@@ -166,9 +168,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       : _openDetail(item),
                                   onLongPress: () => _viewModel
                                       .enterSelectionMode(item),
-                                  onDragSelectStart: _onDragSelectStart,
-                                  onDragSelectMove: _onDragSelectMove,
-                                  onDragSelectEnd: _endDragSelect,
+                                  onSweepStart: _startSweep,
+                                  onSweepMove: _onSweepMove,
+                                  onSweepEnd: _endSweep,
                                 );
                               },
                               childCount: _viewModel.items.length,
@@ -278,75 +280,99 @@ class _HomeScreenState extends State<HomeScreen> {
     _showSnack(parts.isEmpty ? '删除失败' : parts.join('，'));
   }
 
-  void _onDragSelectStart(
+  /// 开始滑动选择：从已选中项滑出则取消，从未选中项滑出则选中。
+  void _startSweep(
     int index,
     Offset tileTopLeft,
     double tileSize,
     bool currentlySelected,
   ) {
-    final scrollOffset =
-        _scrollController.hasClients ? _scrollController.offset : 0.0;
     final width = MediaQuery.sizeOf(context).width;
     final extent = tileSize + 2; // 单元格宽/高 + 2px 间距
-    final cols = ((width - 2) / extent).floor().clamp(1, 1000);
-    _dragRow0Top = tileTopLeft.dy - (index ~/ cols) * extent;
-    _dragGridLeft = tileTopLeft.dx - (index % cols) * extent;
-    _dragExtent = extent;
-    _dragCols = cols;
-    _dragLastIndex = index;
-    _dragSelectState = !currentlySelected;
-    _dragStartScroll = scrollOffset;
+    final cols = ((width - 2) / extent).round().clamp(1, 1000);
+    _sweepRow0Top = tileTopLeft.dy - (index ~/ cols) * extent;
+    _sweepGridLeft = tileTopLeft.dx - (index % cols) * extent;
+    _sweepExtent = extent;
+    _sweepCols = cols;
+    _sweepStartRow = index ~/ cols;
+    _sweepStartCol = index % cols;
+    _sweepLastRow = _sweepStartRow;
+    _sweepLastCol = _sweepStartCol;
+    _sweepSelectState = !currentlySelected;
+    if (currentlySelected != _sweepSelectState) {
+      _viewModel.setSelection(
+        _viewModel.items[index],
+        selected: _sweepSelectState,
+      );
+    }
   }
 
-  void _onDragSelectMove(Offset globalPosition) {
-    final row0Top = _dragRow0Top;
-    final gridLeft = _dragGridLeft;
-    if (row0Top == null || gridLeft == null || _dragExtent <= 0) return;
-    final scrollOffset =
-        _scrollController.hasClients ? _scrollController.offset : 0.0;
-    final scrollDelta = scrollOffset - _dragStartScroll;
+  /// 滑动更新：起点行内按「起点列→当前列」段选；
+  /// 跨入新行则整行选择/取消；纵向滑动由列表本身翻页。
+  void _onSweepMove(Offset globalPosition) {
+    final row0Top = _sweepRow0Top;
+    final gridLeft = _sweepGridLeft;
+    if (row0Top == null || gridLeft == null || _sweepExtent <= 0) return;
+    if (_sweepStartRow < 0) return;
     final row =
-        ((globalPosition.dy - row0Top + scrollDelta) / _dragExtent).floor();
-    final col = ((globalPosition.dx - gridLeft) / _dragExtent).floor();
-    final index =
-        (row * _dragCols + col).clamp(0, _viewModel.items.length - 1);
-    if (index != _dragLastIndex) {
-      _dragLastIndex = index;
-      final item = _viewModel.items[index];
-      final selected = _viewModel.selectedIds.contains(item.imageId);
-      if (selected != _dragSelectState) {
-        _viewModel.setSelection(item, selected: _dragSelectState);
+        ((globalPosition.dy - row0Top + 0.5) / _sweepExtent).floor();
+    if (row < 0) return;
+    final col =
+        ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
+
+    if (row == _sweepStartRow) {
+      if (col == _sweepLastCol) return;
+      _sweepLastCol = col;
+      _applySegment(_sweepStartRow, _sweepStartCol, col);
+      return;
+    }
+    if (row == _sweepLastRow) return; // 已整行处理过的行内横向移动不再重复
+
+    if (row > _sweepLastRow) {
+      for (var r = _sweepLastRow + 1; r <= row; r++) {
+        _applyWholeRow(r);
+      }
+    } else {
+      for (var r = _sweepLastRow - 1; r >= row; r--) {
+        _applyWholeRow(r);
       }
     }
-    _maybeAutoScroll(globalPosition);
+    _sweepLastRow = row;
+    _sweepLastCol = col;
   }
 
-  /// 拖动到屏幕上下边缘时自动滚动，方便跨屏连续选择。
-  void _maybeAutoScroll(Offset globalPosition) {
-    final row0Top = _dragRow0Top;
-    if (row0Top == null) return;
-    const edge = 56.0;
-    final height = MediaQuery.sizeOf(context).height;
-    final top = row0Top;
-    final bottom = height - 64.0; // 底部操作栏所在区域
-    double delta = 0;
-    if (globalPosition.dy < top + edge) {
-      delta = -(edge - (globalPosition.dy - top)).clamp(0.0, edge) * 0.5;
-    } else if (globalPosition.dy > bottom - edge) {
-      delta = (edge - (bottom - globalPosition.dy)).clamp(0.0, edge) * 0.5;
-    }
-    if (delta == 0 || !_scrollController.hasClients) return;
-    final target = (_scrollController.offset + delta)
-        .clamp(0.0, _scrollController.position.maxScrollExtent);
-    if (target != _scrollController.offset) {
-      _scrollController.jumpTo(target);
+  void _applySegment(int row, int fromCol, int toCol) {
+    final lo = fromCol < toCol ? fromCol : toCol;
+    final hi = fromCol > toCol ? fromCol : toCol;
+    for (var c = lo; c <= hi; c++) {
+      final index = row * _sweepCols + c;
+      if (index >= _viewModel.items.length) break;
+      _viewModel.setSelection(
+        _viewModel.items[index],
+        selected: _sweepSelectState,
+      );
     }
   }
 
-  void _endDragSelect() {
-    _dragRow0Top = null;
-    _dragGridLeft = null;
-    _dragLastIndex = -1;
+  void _applyWholeRow(int row) {
+    if (row < 0) return;
+    final start = row * _sweepCols;
+    if (start >= _viewModel.items.length) return;
+    final end = (start + _sweepCols).clamp(0, _viewModel.items.length);
+    for (var i = start; i < end; i++) {
+      _viewModel.setSelection(
+        _viewModel.items[i],
+        selected: _sweepSelectState,
+      );
+    }
+  }
+
+  void _endSweep() {
+    _sweepRow0Top = null;
+    _sweepGridLeft = null;
+    _sweepStartRow = -1;
+    _sweepLastRow = -1;
+    _sweepLastCol = -1;
   }
 
   Future<void> _confirmDeleteLiveParts() async {
@@ -692,9 +718,9 @@ class _PhotoTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onLongPress,
-    required this.onDragSelectStart,
-    required this.onDragSelectMove,
-    required this.onDragSelectEnd,
+    required this.onSweepStart,
+    required this.onSweepMove,
+    required this.onSweepEnd,
   });
 
   final int index;
@@ -710,9 +736,21 @@ class _PhotoTile extends StatelessWidget {
     double tileSize,
     bool currentlySelected,
   )
-      onDragSelectStart;
-  final ValueChanged<Offset> onDragSelectMove;
-  final VoidCallback onDragSelectEnd;
+      onSweepStart;
+  final ValueChanged<Offset> onSweepMove;
+  final VoidCallback onSweepEnd;
+
+  void _startSweepFromContext(BuildContext context) {
+    final box = context.findRenderObject();
+    if (box is RenderBox) {
+      onSweepStart(
+        index,
+        box.localToGlobal(Offset.zero),
+        box.size.shortestSide,
+        selected,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -720,20 +758,18 @@ class _PhotoTile extends StatelessWidget {
       onTap: onTap,
       onLongPressStart: (_) {
         onLongPress();
-        final box = context.findRenderObject();
-        if (box is RenderBox) {
-          onDragSelectStart(
-            index,
-            box.localToGlobal(Offset.zero),
-            box.size.shortestSide,
-            selected,
-          );
-        }
+        _startSweepFromContext(context);
       },
-      onLongPressMoveUpdate: (details) =>
-          onDragSelectMove(details.globalPosition),
-      onLongPressEnd: (_) => onDragSelectEnd(),
-      onLongPressCancel: onDragSelectEnd,
+      onLongPressMoveUpdate: (details) => onSweepMove(details.globalPosition),
+      onLongPressEnd: (_) => onSweepEnd(),
+      onLongPressCancel: onSweepEnd,
+      onHorizontalDragStart: (_) {
+        if (!selectionMode) return;
+        _startSweepFromContext(context);
+      },
+      onHorizontalDragUpdate: (details) => onSweepMove(details.globalPosition),
+      onHorizontalDragEnd: (_) => onSweepEnd(),
+      onHorizontalDragCancel: onSweepEnd,
       child: Stack(
         fit: StackFit.expand,
         children: [
