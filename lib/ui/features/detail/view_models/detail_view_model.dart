@@ -8,7 +8,7 @@ import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/photo_item.dart';
 
 /// 删除操作结果。
-enum DeleteOutcome { done, needPermission, failed }
+enum DeleteOutcome { done, needPermission, videoOnly, failed }
 
 /// 详情页 ViewModel：加载大图/视频/EXIF，并处理删除（移入应用回收站）。
 class DetailViewModel extends ChangeNotifier {
@@ -143,12 +143,27 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   /// 把动态视频（或非 Live 照片）移入应用回收站。
-  Future<DeleteOutcome> startDelete() async {
+  Future<DeleteOutcome> startDelete({bool videoOnly = true}) async {
     if (_busy) return DeleteOutcome.failed;
     _busy = true;
     try {
+      if (item.isLive && !videoOnly) {
+        final videoPlan = await repository
+            .moveToTrash(item, deleteVideo: true)
+            .timeout(const Duration(seconds: 30));
+        if (videoPlan['status'] != 'ok') {
+          return videoPlan['status'] == 'need_permission'
+              ? DeleteOutcome.needPermission
+              : DeleteOutcome.failed;
+        }
+        final imagePlan = await repository
+            .moveToTrash(item, deleteVideo: false)
+            .timeout(const Duration(seconds: 30));
+        if (imagePlan['status'] == 'ok') return DeleteOutcome.done;
+        return DeleteOutcome.videoOnly;
+      }
       final plan = await repository
-          .moveToTrash(item, deleteVideo: item.isLive)
+          .moveToTrash(item, deleteVideo: item.isLive && videoOnly)
           .timeout(const Duration(seconds: 30));
       return switch (plan['status']) {
         'ok' => DeleteOutcome.done,

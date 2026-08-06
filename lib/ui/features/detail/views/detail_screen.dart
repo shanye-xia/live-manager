@@ -9,6 +9,9 @@ import '../../../core/formatters.dart';
 import '../view_models/detail_view_model.dart';
 
 /// 详情页：相册式分页浏览（左右滑动切换）+ 长按播放 + 单击隐藏 UI。
+/// Live 图删除时的两个选项。
+enum _LiveDeleteAction { videoOnly, fullDelete }
+
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
     super.key,
@@ -270,7 +273,7 @@ class _PhotoPageState extends State<_PhotoPage> {
                             color: Colors.white70),
                       ),
                       IconButton(
-                        tooltip: item.isLive ? '删除动态视频' : '删除照片',
+                        tooltip: item.isLive ? '删除' : '删除照片',
                         onPressed: _confirmDelete,
                         icon: const Icon(Icons.delete_outline_rounded,
                             color: Colors.redAccent),
@@ -335,15 +338,33 @@ class _PhotoPageState extends State<_PhotoPage> {
   }
 
   Future<void> _confirmDelete() async {
+    final item = widget.item;
+    if (item.isLive) {
+      final action = await _showLiveDeleteSheet();
+      if (action == null || !mounted) return;
+      final videoOnly = action == _LiveDeleteAction.videoOnly;
+      final outcome = await _viewModel.startDelete(videoOnly: videoOnly);
+      if (!mounted) return;
+      switch (outcome) {
+        case DeleteOutcome.done:
+          _showSnack('已删除');
+          widget.onDeleted(videoOnly);
+        case DeleteOutcome.videoOnly:
+          _showSnack('动态已删除，照片删除失败，已保留为普通照片');
+          widget.onDeleted(true);
+        case DeleteOutcome.needPermission:
+          await _promptAllFilesAccess();
+        case DeleteOutcome.failed:
+          break;
+      }
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(widget.item.isLive ? '删除动态视频？' : '删除照片？'),
-        content: Text(
-          widget.item.isLive
-              ? '将把 MP4 动态视频移入应用回收站，JPG 照片保留。'
-              : '将把照片移入应用回收站。',
-        ),
+        title: const Text('删除照片？'),
+        content: const Text('将把照片移入应用回收站。'),
         actions: [
           FilledButton.tonal(
             onPressed: () => Navigator.of(context).pop(false),
@@ -362,17 +383,97 @@ class _PhotoPageState extends State<_PhotoPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    final outcome = await _viewModel.startDelete();
+    final outcome = await _viewModel.startDelete(videoOnly: true);
     if (!mounted) return;
     switch (outcome) {
       case DeleteOutcome.done:
-        _showDeletedSnackBar();
-        widget.onDeleted(widget.item.isLive);
+        _showSnack('已删除');
+        widget.onDeleted(false);
+      case DeleteOutcome.videoOnly:
+        _showSnack('已删除');
+        widget.onDeleted(false);
       case DeleteOutcome.needPermission:
         await _promptAllFilesAccess();
       case DeleteOutcome.failed:
-        break; // 失败不弹提示
+        break;
     }
+  }
+
+  /// Live 图删除底部面板：仅删除动态 / 全部删除。
+  Future<_LiveDeleteAction?> _showLiveDeleteSheet() {
+    final item = widget.item;
+    return showModalBottomSheet<_LiveDeleteAction>(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 12, 20, 2),
+              child: Text(
+                '删除动态视频',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'LIVE · 照片 ${formatBytes(item.imageSize)}'
+                ' · 动态 ${formatBytes(item.videoSize ?? 0)}',
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            _DeleteOptionTile(
+              icon: Icons.movie_outlined,
+              title: '仅删除Live动态',
+              subtitle: '照片保留，动态视频移入回收站',
+              onTap: () =>
+                  Navigator.of(context).pop(_LiveDeleteAction.videoOnly),
+            ),
+            _DeleteOptionTile(
+              icon: Icons.delete_outline,
+              title: '全部删除',
+              subtitle: '照片和动态一起移入回收站',
+              destructive: true,
+              onTap: () =>
+                  Navigator.of(context).pop(_LiveDeleteAction.fullDelete),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text(
+                  '取消',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _promptAllFilesAccess() async {
@@ -401,7 +502,7 @@ class _PhotoPageState extends State<_PhotoPage> {
     }
   }
 
-  void _showDeletedSnackBar() {
+  void _showSnack(String message) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.removeCurrentSnackBar();
     messenger.showSnackBar(
@@ -411,7 +512,7 @@ class _PhotoPageState extends State<_PhotoPage> {
         content: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: messenger.hideCurrentSnackBar,
-          child: const Text('已删除'),
+          child: Text(message),
         ),
       ),
     );
@@ -457,6 +558,59 @@ class _LiveBadgeSmall extends StatelessWidget {
 }
 
 /// 半透明灰色圆角面板，保证文字在图片上清晰可读。
+class _DeleteOptionTile extends StatelessWidget {
+  const _DeleteOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive ? Colors.redAccent : Colors.white;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _GlassPanel extends StatelessWidget {
   const _GlassPanel({required this.child});
 
