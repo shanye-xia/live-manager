@@ -124,11 +124,11 @@ void main() {
       await vm.load();
       vm.enterSelectionMode(vm.items.first);
 
-      vm.toggleSelectAllVisible();
+      vm.toggleSelectAllVisible(vm.items);
       expect(vm.selectedCount, 3);
-      expect(vm.allVisibleSelected, isTrue);
+      expect(vm.allVisibleSelected(vm.items), isTrue);
 
-      vm.toggleSelectAllVisible();
+      vm.toggleSelectAllVisible(vm.items);
       expect(vm.selectedCount, 0);
     });
   });
@@ -190,9 +190,9 @@ void main() {
       final vm = HomeViewModel(repository: _FakeRepository());
       await vm.load();
       vm.enterSelectionMode(vm.items.first);
-      vm.toggleSelectAllVisible();
+      vm.toggleSelectAllVisible(vm.items);
       expect(vm.selectedLiveCount, 1);
-      vm.toggleSelectAllVisible();
+      vm.toggleSelectAllVisible(vm.items);
       expect(vm.selectedLiveCount, 0);
       vm.exitSelectionMode();
       expect(vm.selectedLiveCount, 0);

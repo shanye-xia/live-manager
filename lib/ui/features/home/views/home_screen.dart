@@ -3,25 +3,28 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/photo_item.dart';
 import '../../../core/formatters.dart';
 import '../../detail/views/detail_screen.dart';
-import '../../trash/views/recycle_bin_screen.dart';
 import '../view_models/home_view_model.dart';
 
 /// 首页：全部照片网格（Live 图带 LIVE 角标）。
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.repository});
+  const HomeScreen({
+    super.key,
+    required this.viewModel,
+    this.liveOnly = false,
+  });
 
-  final LivePhotoRepository repository;
+  final HomeViewModel viewModel;
+  final bool liveOnly;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  late final HomeViewModel _viewModel;
+class _HomeScreenState extends State<HomeScreen>
+    with AutomaticKeepAliveClientMixin {
   final ScrollController _scrollController = ScrollController();
 
   // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
@@ -43,32 +46,34 @@ class _HomeScreenState extends State<HomeScreen> {
   int _lastPointerDown = -1;
   Set<int> _sweepPreSelected = {};
 
-  @override
-  void initState() {
-    super.initState();
-    _viewModel = HomeViewModel(repository: widget.repository)..load();
-  }
+
+  /// Visible items for this tab (all photos, or cached live-only view).
+  List<PhotoItem> get _visibleItems =>
+      widget.liveOnly ? widget.viewModel.liveItems : widget.viewModel.items;
 
   @override
   void dispose() {
     _stopSweepTimer();
     _scrollController.dispose();
-    _viewModel.dispose();
     super.dispose();
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ListenableBuilder(
-      listenable: _viewModel,
+      listenable: widget.viewModel,
       builder: (context, _) {
-        final selectionMode = _viewModel.selectionMode;
+        final selectionMode = widget.viewModel.selectionMode;
         // 多选模式下拦截系统返回：先退出选择模式，再按一次才退出应用。
         return PopScope(
           canPop: !selectionMode,
           onPopInvokedWithResult: (didPop, result) {
             if (!didPop && selectionMode) {
-              _viewModel.exitSelectionMode();
+              widget.viewModel.exitSelectionMode();
             }
           },
           child: Scaffold(
@@ -76,31 +81,24 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: selectionMode
                   ? IconButton(
                       tooltip: '取消',
-                      onPressed: _viewModel.exitSelectionMode,
+                      onPressed: widget.viewModel.exitSelectionMode,
                       icon: const Icon(Icons.close),
                     )
                   : null,
               title: Text(
                 selectionMode
-                    ? '已选 ${_viewModel.selectedCount} 项'
-                    : 'Live Manager',
+                    ? '已选 ${widget.viewModel.selectedCount} 项'
+                    : (widget.liveOnly ? 'Live 动态' : 'Live Manager'),
               ),
               centerTitle: false,
-              actions: [
-                if (!selectionMode)
-                  IconButton(
-                    tooltip: '回收站',
-                    onPressed: _openRecycleBin,
-                    icon: const Icon(Icons.restore_from_trash_outlined),
-                  ),
-              ],
             ),
             body: _buildBody(),
             bottomNavigationBar: selectionMode
                 ? _SelectionActionBar(
-                    allSelected: _viewModel.allVisibleSelected,
-                    showDeleteLive: _viewModel.selectedLiveCount > 0,
-                    onToggleSelectAll: _viewModel.toggleSelectAllVisible,
+                    allSelected: widget.viewModel.allVisibleSelected(_visibleItems),
+                    showDeleteLive: widget.viewModel.selectedLiveCount > 0,
+                    onToggleSelectAll: () => widget.viewModel
+                        .toggleSelectAllVisible(_visibleItems),
                     onDeleteLive: _confirmDeleteLiveParts,
                     onDelete: _confirmBatchDelete,
                   )
@@ -112,18 +110,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBody() {
-    switch (_viewModel.status) {
+    switch (widget.viewModel.status) {
       case HomeStatus.initial:
       case HomeStatus.loading:
         return const Center(child: CircularProgressIndicator());
       case HomeStatus.error:
         return _ErrorView(
-          message: _viewModel.error ?? '未知错误',
-          onRetry: _viewModel.load,
+          message: widget.viewModel.error ?? '未知错误',
+          onRetry: widget.viewModel.load,
         );
       case HomeStatus.ready:
-        if (_viewModel.items.isEmpty) {
-          return _EmptyView(onRefresh: _viewModel.load);
+        if (_visibleItems.isEmpty) {
+          return _EmptyView(onRefresh: widget.viewModel.load);
         }
         return _buildGrid();
     }
@@ -131,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildGrid() {
     return RefreshIndicator(
-      onRefresh: _viewModel.load,
+      onRefresh: widget.viewModel.load,
       child: SizedBox.expand(
         child: Stack(
           key: _sweepViewportKey,
@@ -152,11 +150,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       slivers: [
                         SliverToBoxAdapter(
                           child: _SummaryBar(
-                            count: _viewModel.items.length,
-                            liveCount: _viewModel.liveCount,
-                            totalBytes: _viewModel.totalBytes,
-                            liveImageBytes: _viewModel.liveImageTotalBytes,
-                            liveVideoBytes: _viewModel.liveVideoTotalBytes,
+                            liveOnly: widget.liveOnly,
+                            count: _visibleItems.length,
+                            liveCount: widget.viewModel.liveCount,
+                            totalBytes: widget.viewModel.totalBytes,
+                            liveImageBytes: widget.viewModel.liveImageTotalBytes,
+                            liveVideoBytes: widget.viewModel.liveVideoTotalBytes,
                           ),
                         ),
                         SliverPadding(
@@ -170,25 +169,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             delegate: SliverChildBuilderDelegate(
                               (context, index) {
-                                final item = _viewModel.items[index];
+                                final item = _visibleItems[index];
                                 return _PhotoTile(
                                   index: index,
                                   item: item,
                                   thumbnailFuture:
-                                      _viewModel.thumbnailPathFor(item),
-                                  selectionMode: _viewModel.selectionMode,
-                                  selected: _viewModel.selectedIds.contains(
+                                      widget.viewModel.thumbnailPathFor(item),
+                                  selectionMode: widget.viewModel.selectionMode,
+                                  selected: widget.viewModel.selectedIds.contains(
                                     item.imageId,
                                   ),
-                                  onTap: () => _viewModel.selectionMode
-                                      ? _viewModel.toggleSelection(item)
+                                  onTap: () => widget.viewModel.selectionMode
+                                      ? widget.viewModel.toggleSelection(item)
                                       : _openDetail(item),
-                                  onLongPress: () => _viewModel
+                                  onLongPress: () => widget.viewModel
                                       .enterSelectionMode(item),
                                   onSweepStart: _startSweep,
                                 );
                               },
-                              childCount: _viewModel.items.length,
+                              childCount: _visibleItems.length,
                             ),
                           ),
                         ),
@@ -219,24 +218,24 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openDetail(PhotoItem item) async {
     String? thumbnailPath;
     try {
-      thumbnailPath = await _viewModel.thumbnailPathFor(item);
+      thumbnailPath = await widget.viewModel.thumbnailPathFor(item);
     } catch (_) {
       // 缩略图失败不阻塞进入详情
     }
     if (!mounted) return;
-    final index = _viewModel.items
+    final index = _visibleItems
         .indexWhere((e) => e.imageId == item.imageId);
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => DetailScreen(
-          items: _viewModel.items,
+          items: _visibleItems,
           initialIndex: index < 0 ? 0 : index,
-          repository: widget.repository,
-          thumbnailLoader: _viewModel.thumbnailPathFor,
+          repository: widget.viewModel.repository,
+          thumbnailLoader: widget.viewModel.thumbnailPathFor,
           thumbnailPath: thumbnailPath,
           onDelete: (imageId, videoOnly) {
             if (mounted) {
-              _viewModel.applyDelete(imageId, videoOnly: videoOnly);
+              widget.viewModel.applyDelete(imageId, videoOnly: videoOnly);
             }
           },
         ),
@@ -244,21 +243,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openRecycleBin() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => RecycleBinScreen(
-          repository: widget.repository,
-          onRestored: (info) {
-            if (mounted) _viewModel.applyRestored(info);
-          },
-        ),
-      ),
-    );
-  }
 
   Future<void> _confirmBatchDelete() async {
-    final count = _viewModel.selectedCount;
+    final count = widget.viewModel.selectedCount;
     if (count == 0) return;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -285,7 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final result = await _withProgress(
       '正在删除 $count 项…',
-      _viewModel.deleteSelected,
+      widget.viewModel.deleteSelected,
     );
     if (!mounted) return;
     final parts = <String>[
@@ -313,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _sweepCols = cols;
     _sweepStartRow = index ~/ cols;
     _sweepStartCol = index % cols;
-    _sweepPreSelected = Set.of(_viewModel.selectedIds);
+    _sweepPreSelected = Set.of(widget.viewModel.selectedIds);
     _sweepSelectState = !currentlySelected;
     _sweepPointer = _lastPointerDown;
     _sweepStartScroll = _scrollController.hasClients
@@ -321,8 +308,8 @@ class _HomeScreenState extends State<HomeScreen> {
         : 0;
     _sweepRange = {index};
     if (currentlySelected != _sweepSelectState) {
-      _viewModel.setSelection(
-        _viewModel.items[index],
+      widget.viewModel.setSelection(
+        _visibleItems[index],
         selected: _sweepSelectState,
       );
     }
@@ -368,7 +355,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final hi = col > _sweepStartCol ? col : _sweepStartCol;
       for (var c = lo; c <= hi; c++) {
         final index = _sweepStartRow * cols + c;
-        if (index >= 0 && index < _viewModel.items.length) next.add(index);
+        if (index >= 0 && index < _visibleItems.length) next.add(index);
       }
     } else {
       final movingDown = row > _sweepStartRow;
@@ -391,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         for (var c = c0; c <= c1; c++) {
           final index = r * cols + c;
-          if (index >= 0 && index < _viewModel.items.length) next.add(index);
+          if (index >= 0 && index < _visibleItems.length) next.add(index);
         }
       }
     }
@@ -402,15 +389,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final toEnter = next.difference(_sweepRange);
     final toLeave = _sweepRange.difference(next);
     final changes = <(PhotoItem, bool)>[
-      for (final i in toEnter) (_viewModel.items[i], _sweepSelectState),
+      for (final i in toEnter) (_visibleItems[i], _sweepSelectState),
       for (final i in toLeave)
         (
-          _viewModel.items[i],
-          _sweepPreSelected.contains(_viewModel.items[i].imageId),
+          _visibleItems[i],
+          _sweepPreSelected.contains(_visibleItems[i].imageId),
         ),
     ];
     _sweepRange = next;
-    _viewModel.applySelectionDelta(changes);
+    widget.viewModel.applySelectionDelta(changes);
   }
 
   /// Edge auto-scroll: hold near the top/bottom edge to keep scrolling.
@@ -508,7 +495,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _confirmDeleteLiveParts() async {
-    final liveCount = _viewModel.selectedLiveCount;
+    final liveCount = widget.viewModel.selectedLiveCount;
     if (liveCount == 0) return;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -538,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final result = await _withProgress(
       '正在删除动态视频…',
-      _viewModel.deleteLiveParts,
+      widget.viewModel.deleteLiveParts,
     );
     if (!mounted) return;
     _showSnack(
@@ -705,6 +692,7 @@ class _GridScrollRailState extends State<_GridScrollRail> {
 
 class _SummaryBar extends StatefulWidget {
   const _SummaryBar({
+    this.liveOnly = false,
     required this.count,
     required this.liveCount,
     required this.totalBytes,
@@ -712,6 +700,7 @@ class _SummaryBar extends StatefulWidget {
     required this.liveVideoBytes,
   });
 
+  final bool liveOnly;
   final int count;
   final int liveCount;
   final int totalBytes;
@@ -746,7 +735,7 @@ class _SummaryBarState extends State<_SummaryBar> {
               ),
               child: Row(
                 children: [
-                  Expanded(
+if (!widget.liveOnly) ...[                  Expanded(
                     child: _buildColumn(
                       scheme,
                       icon: Icons.photo_library_outlined,
@@ -757,12 +746,11 @@ class _SummaryBarState extends State<_SummaryBar> {
                         formatBytes(widget.totalBytes),
                       ],
                     ),
-                  ),
-                  Container(
+                  ),                  Container(
                     width: 1,
                     height: _expanded ? 56 : 32,
                     color: scheme.outlineVariant.withValues(alpha: 0.5),
-                  ),
+                  )],
                   Expanded(
                     child: _buildColumn(
                       scheme,
@@ -841,7 +829,7 @@ class _SummaryBarState extends State<_SummaryBar> {
   }
 }
 
-class _PhotoTile extends StatelessWidget {
+class _PhotoTile extends StatefulWidget {
   const _PhotoTile({
     required this.index,
     required this.item,
@@ -868,14 +856,35 @@ class _PhotoTile extends StatelessWidget {
   )
       onSweepStart;
 
+  @override
+  State<_PhotoTile> createState() => _PhotoTileState();
+}
+
+class _PhotoTileState extends State<_PhotoTile> {
+  late Future<String> _thumbnailFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _thumbnailFuture = widget.thumbnailFuture;
+  }
+
+  @override
+  void didUpdateWidget(_PhotoTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.thumbnailFuture != widget.thumbnailFuture) {
+      _thumbnailFuture = widget.thumbnailFuture;
+    }
+  }
+
   void _startSweepFromContext(BuildContext context) {
     final box = context.findRenderObject();
     if (box is RenderBox) {
-      onSweepStart(
-        index,
+      widget.onSweepStart(
+        widget.index,
         box.localToGlobal(Offset.zero),
         box.size.shortestSide,
-        selected,
+        widget.selected,
       );
     }
   }
@@ -883,47 +892,48 @@ class _PhotoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.onTap,
       onLongPressStart: (_) {
-        onLongPress();
+        widget.onLongPress();
         _startSweepFromContext(context);
       },
-      onHorizontalDragStart: (_) {
-        if (!selectionMode) return;
-        _startSweepFromContext(context);
-      },
+      onHorizontalDragStart: widget.selectionMode
+          ? (_) => _startSweepFromContext(context)
+          : null,
       child: Stack(
         fit: StackFit.expand,
         children: [
           FutureBuilder<String>(
-            future: thumbnailFuture,
+            future: _thumbnailFuture,
             builder: (context, snapshot) {
               if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                 return Image.file(
                   File(snapshot.data!),
                   fit: BoxFit.cover,
+                  cacheWidth: 512,
+                  gaplessPlayback: true,
                   errorBuilder: (_, _, _) => const _TilePlaceholder(),
                 );
               }
               return const _TilePlaceholder();
             },
           ),
-          if (item.isLive)
+          if (widget.item.isLive)
             const Positioned(
               top: 6,
               left: 6,
               child: _LiveBadge(),
             ),
-          if (item.isLive)
+          if (widget.item.isLive)
             Positioned(
               bottom: 6,
               right: 6,
-              child: _VideoSizeBadge(size: item.videoSize ?? 0),
+              child: _VideoSizeBadge(size: widget.item.videoSize ?? 0),
             ),
-          if (selectionMode) ...[
+          if (widget.selectionMode) ...[
             Positioned.fill(
               child: AnimatedOpacity(
-                opacity: selected ? 1 : 0,
+                opacity: widget.selected ? 1 : 0,
                 duration: const Duration(milliseconds: 150),
                 child: ColoredBox(color: Colors.black.withValues(alpha: 0.35)),
               ),
@@ -931,7 +941,7 @@ class _PhotoTile extends StatelessWidget {
             Positioned(
               top: 6,
               right: 6,
-              child: _SelectionBadge(selected: selected),
+              child: _SelectionBadge(selected: widget.selected),
             ),
           ],
         ],
