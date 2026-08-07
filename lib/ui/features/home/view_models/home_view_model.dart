@@ -104,14 +104,6 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 后台预热全部缩略图（先解析路径、填充平台缓存），
-  /// 使得切换到 Live 页时缩略图已经就绪，避免滑动动画期间场景内重度加载。
-  void prewarmThumbnails() {
-    for (final item in _allItems) {
-      thumbnailPathFor(item).catchError((_) => '');
-    }
-  }
-
   /// 返回缩略图文件路径（同一 item 只请求一次，Future 记忆化）。
   Future<String> thumbnailPathFor(PhotoItem item) {
     return _thumbnailFutures.putIfAbsent(

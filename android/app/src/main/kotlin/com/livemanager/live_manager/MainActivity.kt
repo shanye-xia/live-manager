@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -21,6 +22,14 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // 启动时收敛应用缓存配额（后台线程，避免阻塞首帧）
+        Thread {
+            LivePhotoThumbnails.enforceAllQuotas(applicationContext)
+        }.start()
+    }
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
@@ -219,6 +228,8 @@ class MainActivity : FlutterActivity() {
         val relativePath = call.argument<String>("relativePath") ?: ""
         val mediaType = call.argument<String>("mediaType") ?: "video"
         val dateTaken = (call.argument<Number>("dateTaken"))?.toLong() ?: 0L
+        val imageId = (call.argument<Number>("imageId"))?.toLong()
+        val videoId = (call.argument<Number>("videoId"))?.toLong()
 
         Thread {
             try {
@@ -228,7 +239,9 @@ class MainActivity : FlutterActivity() {
                     fileName,
                     relativePath,
                     mediaType,
-                    dateTaken
+                    dateTaken,
+                    imageId,
+                    videoId
                 )
                 runOnUiThread {
                     if (status == LivePhotoTrash.STATUS_OK) {

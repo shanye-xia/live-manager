@@ -91,6 +91,8 @@ class LivePhotoPlatformService {
     required String relativePath,
     required String mediaType,
     required int dateTaken,
+    int? imageId,
+    int? videoId,
   }) async {
     final result = await _channel.invokeMapMethod<String, dynamic>(
       'moveToTrash',
@@ -100,6 +102,8 @@ class LivePhotoPlatformService {
         'relativePath': relativePath,
         'mediaType': mediaType,
         'dateTaken': dateTaken,
+        'imageId': imageId,
+        'videoId': videoId,
       },
     );
     return result ?? const {};

@@ -118,6 +118,8 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
       relativePath: item.relativePath,
       mediaType: deleteVideo ? 'video' : 'image',
       dateTaken: item.createTime.millisecondsSinceEpoch,
+      imageId: item.imageId,
+      videoId: item.videoId,
     );
   }
 

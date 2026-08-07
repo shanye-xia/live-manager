@@ -10,8 +10,17 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
-/** 缩略图生成与缓存：生成 JPEG 缩略图到应用缓存目录，避免重复解码。 */
+/**
+ * 缩略图生成与缓存：生成 JPEG 缩略图到应用缓存目录，避免重复解码。
+ * 缓存均为可再生成的副本：超配额时按最后使用时间淘汰最旧文件，照片删除时同步清理，
+ * 不影响系统相册中的原图/原视频。
+ */
 object LivePhotoThumbnails {
+
+    /** 各缓存目录的磁盘配额（超过后删除最久未使用的文件，直到达标）。 */
+    private const val MAX_THUMBS_BYTES = 300L * 1024 * 1024
+    private const val MAX_FULL_BYTES = 400L * 1024 * 1024
+    private const val MAX_VIDEO_BYTES = 400L * 1024 * 1024
 
     fun getOrCreate(context: Context, imageId: Long, imageUri: String, sizePx: Int): String {
         val dir = File(context.cacheDir, "thumbs").apply { mkdirs() }
@@ -25,33 +34,87 @@ object LivePhotoThumbnails {
         FileOutputStream(cacheFile).use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)
         }
+        enforceQuota(dir, MAX_THUMBS_BYTES)
         return cacheFile.absolutePath
     }
 
-    /** 复制原始图片到缓存目录（详情页大图显示，避免直接依赖 content://）。 */
+    /** 复制原图到缓存目录（详情页大图显示，避免直接依赖 content://）。*/
     fun fullImage(context: Context, imageId: Long, imageUri: String): String {
         val dir = File(context.cacheDir, "full").apply { mkdirs() }
         val cacheFile = File(dir, "$imageId.jpg")
         if (cacheFile.exists() && cacheFile.length() > 0) {
+            touch(cacheFile)
             return cacheFile.absolutePath
         }
         context.contentResolver.openInputStream(Uri.parse(imageUri))?.use { input ->
             FileOutputStream(cacheFile).use { out -> input.copyTo(out) }
         } ?: throw IOException("无法读取图片: $imageUri")
+        touch(cacheFile)
+        enforceQuota(dir, MAX_FULL_BYTES)
         return cacheFile.absolutePath
     }
 
-    /** 复制动态视频到缓存目录（长按播放使用本地文件，最稳定）。 */
+    /** 复制动态视频到缓存目录（长按播放使用本地文件，最稳定）。*/
     fun videoFile(context: Context, videoId: Long, videoUri: String): String {
         val dir = File(context.cacheDir, "videos").apply { mkdirs() }
         val cacheFile = File(dir, "$videoId.mp4")
         if (cacheFile.exists() && cacheFile.length() > 0) {
+            touch(cacheFile)
             return cacheFile.absolutePath
         }
         context.contentResolver.openInputStream(Uri.parse(videoUri))?.use { input ->
             FileOutputStream(cacheFile).use { out -> input.copyTo(out) }
         } ?: throw IOException("无法读取视频: $videoUri")
+        touch(cacheFile)
+        enforceQuota(dir, MAX_VIDEO_BYTES)
         return cacheFile.absolutePath
+    }
+
+    /** 刷新最后使用时间，作为淘汰顺序依据（仅在看详情/播放时调用，缩略图不 touch 以免预热干扰排序）。 */
+    private fun touch(file: File) {
+        try {
+            file.setLastModified(System.currentTimeMillis())
+        } catch (_: Exception) {
+            // 个别文件系统可能不支持，忽略
+        }
+    }
+
+    /** 目录总大小超过配额时，按最后使用时间删除最旧的文件，直到达标。 */
+    fun enforceQuota(dir: File, maxBytes: Long) {
+        if (maxBytes <= 0) return
+        val files = dir.listFiles()?.filter { it.isFile } ?: return
+        if (files.isEmpty()) return
+        var total = 0L
+        for (f in files) total += f.length()
+        if (total <= maxBytes) return
+        val oldestFirst = files.sortedBy { it.lastModified() }
+        for (f in oldestFirst) {
+            if (total <= maxBytes) break
+            val size = f.length()
+            if (f.delete()) total -= size
+        }
+    }
+
+    /** 启动时统一收敛三个缓存目录（应放在后台线程调用）。 */
+    fun enforceAllQuotas(context: Context) {
+        enforceQuota(File(context.cacheDir, "thumbs"), MAX_THUMBS_BYTES)
+        enforceQuota(File(context.cacheDir, "full"), MAX_FULL_BYTES)
+        enforceQuota(File(context.cacheDir, "videos"), MAX_VIDEO_BYTES)
+    }
+
+    /** 照片删除时清理其缓存副本（均可再生成，不影响系统相册原文件）。 */
+    fun removeCaches(context: Context, imageId: Long?, videoId: Long?) {
+        if (imageId != null) {
+            File(context.cacheDir, "thumbs").listFiles()?.forEach { f ->
+                if (f.isFile && f.name.startsWith("${imageId}_") && f.name.endsWith(".jpg")) {
+                    f.delete()
+                }
+            }
+            File(File(context.cacheDir, "full"), "$imageId.jpg").delete()
+        }
+        if (videoId != null) {
+            File(File(context.cacheDir, "videos"), "$videoId.mp4").delete()
+        }
     }
 
     private fun decode(context: Context, uri: Uri, sizePx: Int): Bitmap {

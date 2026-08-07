@@ -115,7 +115,9 @@ object LivePhotoTrash {
         fileName: String,
         relativePath: String,
         mediaType: String,
-        dateTaken: Long
+        dateTaken: Long,
+        imageId: Long? = null,
+        videoId: Long? = null
     ): Pair<TrashEntry?, String> {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
             !Environment.isExternalStorageManager()
@@ -140,6 +142,13 @@ object LivePhotoTrash {
         if (deleted < 0) {
             trashFile.delete()
             return null to STATUS_FAILED
+        }
+
+        // 照片删除成功：同步清理应用缓存中的缩略图/原图/视频副本（可再生成，不影响系统相册）
+        if (mediaType == "video") {
+            LivePhotoThumbnails.removeCaches(context, null, videoId)
+        } else {
+            LivePhotoThumbnails.removeCaches(context, imageId, videoId)
         }
 
         val entry = TrashEntry(

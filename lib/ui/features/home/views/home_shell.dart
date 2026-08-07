@@ -33,8 +33,6 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _viewModel = HomeViewModel(repository: widget.repository)..load();
-    // 预热全部缩略图，使 tab 滑动切换时不重新加载图片。
-    _viewModel.prewarmThumbnails();
     _pageController = PageController();
     _pages = [
       HomeScreen(viewModel: _viewModel, liveOnly: false),
