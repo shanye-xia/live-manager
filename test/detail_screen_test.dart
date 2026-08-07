@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:live_manager/data/repositories/live_photo_repository.dart';
@@ -6,20 +10,19 @@ import 'package:live_manager/domain/models/trash_entry.dart';
 import 'package:live_manager/ui/features/detail/views/detail_screen.dart';
 
 class _FakeRepository implements LivePhotoRepository {
-  _FakeRepository();
+  _FakeRepository(this.imagePath);
 
+  final String imagePath;
   final List<bool> deleteVideoCalls = [];
 
   @override
   Future<List<PhotoItem>> scan() async => const [];
 
   @override
-  Future<String> thumbnailPathFor(PhotoItem item) async =>
-      '/fake/${item.imageId}.jpg';
+  Future<String> thumbnailPathFor(PhotoItem item) async => imagePath;
 
   @override
-  Future<String> fullImagePathFor(PhotoItem item) async =>
-      '/fake/${item.imageId}_full.jpg';
+  Future<String> fullImagePathFor(PhotoItem item) async => imagePath;
 
   @override
   Future<String> videoFilePathFor(PhotoItem item) async =>
@@ -61,6 +64,41 @@ class _FakeRepository implements LivePhotoRepository {
 }
 
 void main() {
+  late String testImage;
+
+  setUpAll(() async {
+    final dir = await Directory.systemTemp.createTemp('livephoto_test_');
+    testImage = '${dir.path}${Platform.pathSeparator}test.png';
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      const Rect.fromLTWH(0, 0, 800, 300),
+      Paint()..color = const Color(0xFF4488FF),
+    );
+    final image = await recorder.endRecording().toImage(800, 300);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    await File(testImage).writeAsBytes(bytes!.buffer.asUint8List());
+  });
+
+  Future<void> warmCache(String path) async {
+    final provider = FileImage(File(path));
+    final stream = provider.resolve(ImageConfiguration.empty);
+    final completer = Completer<ImageInfo>();
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        stream.removeListener(listener);
+        completer.complete(info);
+      },
+      onError: (e, _) {
+        stream.removeListener(listener);
+        completer.completeError(e);
+      },
+    );
+    stream.addListener(listener);
+    await completer.future.timeout(const Duration(seconds: 5));
+  }
+
   final liveItem = PhotoItem(
     imageId: 1,
     imageUri: 'content://media/external/images/media/1',
@@ -89,18 +127,21 @@ void main() {
     required List<PhotoItem> items,
     required void Function(int imageId, bool videoOnly) onDelete,
   }) async {
-    final repository = _FakeRepository();
+    final repository = _FakeRepository(testImage);
+    await tester.runAsync(() => warmCache(testImage));
     await tester.pumpWidget(
       MaterialApp(
         home: DetailScreen(
           items: items,
           initialIndex: 0,
           repository: repository,
-          thumbnailLoader: (item) async => '/fake/${item.imageId}.jpg',
+          thumbnailLoader: (item) async => testImage,
           onDelete: onDelete,
         ),
       ),
     );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
     return repository;
   }

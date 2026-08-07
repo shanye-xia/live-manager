@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:photo_view/photo_view.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/photo_item.dart';
@@ -38,6 +41,8 @@ class _DetailScreenState extends State<DetailScreen> {
   late final PageController _pageController;
   late List<PhotoItem> _items;
   bool _uiVisible = true;
+  bool _pageDragActive = false;
+  double _pageDragBase = 0;
 
   @override
   void initState() {
@@ -60,6 +65,8 @@ class _DetailScreenState extends State<DetailScreen> {
         children: [
           PageView.builder(
             controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
+            pageSnapping: false,
             itemCount: _items.length,
             itemBuilder: (context, index) {
               final item = _items[index];
@@ -73,12 +80,66 @@ class _DetailScreenState extends State<DetailScreen> {
                 uiVisible: _uiVisible,
                 positionText: '${index + 1} / ${_items.length}',
                 onToggleUi: () => setState(() => _uiVisible = !_uiVisible),
+                onPageDragStart: _startPageDrag,
+                onPageDrag: _updatePageDrag,
+                onPageDragEnd: _endPageDrag,
+                onPageDragCancel: _cancelPageDrag,
                 onDeleted: (videoOnly) => _handleDeleted(index, videoOnly),
               );
             },
           ),
         ],
       ),
+    );
+  }
+
+  /// 页面翻页手势：开始/跟手/取消/松手停靠。
+  /// 由图片手势层驱动（PageView 自身不参与手势竞争，避免捏合被误判为翻页）。
+  void _startPageDrag() {
+    if (!_pageController.hasClients || _pageDragActive) return;
+    _pageDragActive = true;
+    _pageDragBase = _pageController.position.pixels;
+  }
+
+  void _updatePageDrag(double dx) {
+    if (!_pageController.hasClients) return;
+    if (!_pageDragActive) _startPageDrag();
+    final pos = _pageController.position;
+    final target = (_pageDragBase - dx)
+        .clamp(pos.minScrollExtent, pos.maxScrollExtent);
+    _pageController.jumpTo(target);
+  }
+
+  /// 第二根手指落下等需要放弃翻页时：页面回到手势开始的位置。
+  void _cancelPageDrag() {
+    if (!_pageController.hasClients || !_pageDragActive) return;
+    _pageDragActive = false;
+    _pageController.jumpTo(_pageDragBase);
+  }
+
+  /// 松手：速度快或滑过一半则停靠到相邻页，否则弹回当前页。
+  void _endPageDrag(double velocityX) {
+    if (!_pageController.hasClients) return;
+    _pageDragActive = false;
+    final pos = _pageController.position;
+    final viewport = pos.viewportDimension;
+    if (viewport <= 0) return;
+    final fraction = pos.pixels / viewport;
+    final lower = fraction.floor().clamp(0, _items.length - 1);
+    final progress = fraction - lower;
+    int target;
+    if (velocityX.abs() > 500) {
+      target = (lower + (velocityX < 0 ? 1 : 0))
+          .clamp(0, _items.length - 1);
+    } else if (progress > 0.5) {
+      target = (lower + 1).clamp(0, _items.length - 1);
+    } else {
+      target = lower;
+    }
+    _pageController.animateToPage(
+      target,
+      duration: Duration(milliseconds: target == lower ? 160 : 240),
+      curve: Curves.easeOutCubic,
     );
   }
 
@@ -118,6 +179,10 @@ class _PhotoPage extends StatefulWidget {
     required this.uiVisible,
     required this.positionText,
     required this.onToggleUi,
+    required this.onPageDragStart,
+    required this.onPageDrag,
+    required this.onPageDragEnd,
+    required this.onPageDragCancel,
     required this.onDeleted,
   });
 
@@ -128,18 +193,61 @@ class _PhotoPage extends StatefulWidget {
   final bool uiVisible;
   final String positionText;
   final VoidCallback onToggleUi;
+  final VoidCallback onPageDragStart;
+  final ValueChanged<double> onPageDrag;
+  final ValueChanged<double> onPageDragEnd;
+  final VoidCallback onPageDragCancel;
   final ValueChanged<bool> onDeleted;
 
   @override
   State<_PhotoPage> createState() => _PhotoPageState();
 }
 
-class _PhotoPageState extends State<_PhotoPage> {
+class _PhotoPageState extends State<_PhotoPage>
+    with SingleTickerProviderStateMixin {
+  static const double _touchSlop = 18;
+
+  /// photo_view ????????? 1.6s ???????????????????
+  /// ???????????????????
+  static const Duration _photoViewFlingGuard = Duration(milliseconds: 1650);
+
+
   late final DetailViewModel _viewModel;
+  late final PhotoViewController _photoController;
+
+  /// 当前按下的指针（被动监听，不参与手势竞争）。
+  final Set<int> _activePointers = {};
+
+  bool _pageDragging = false; // 1x 翻页已激活
+  double _pageAccumDx = 0; // 未越过阈值时累计的横向位移
+  double _pageTotalDx = 0; // 越过阈值后相对翻页起点的累计位移
+  bool _edgeMode = false; // 放大后边界外推模式
+  int _edgeDir = 0; // 外推方向：1=向右（上一张），-1=向左（下一张）
+  double _edgeDx = 0;
+  bool _pinchSession = false; // 本次触摸会话出现过双指：只缩放/平移，绝不翻页
+  double _lastVx = 0; // 最近一次移动的横向速度（用于松手甩动判定）
+  Duration _lastMoveStamp = Duration.zero;
+
+  double _panSlopDx = 0; // 图片未移动时累计的手指横向位移
+
+  bool _flingConsumed = false; // 本次手势的松手处理（切页/惯性）已执行
+  bool _gestureStartLeftEdge = false; // 手势开始时是否已贴左边界（下一张侧）
+  bool _gestureStartRightEdge = false; // 手势开始时是否已贴右边界（上一张侧）
+  AnimationController? _inertiaController; // 放大后快速甩动的惯性动画
+  double _inertiaFrom = 0;
+  double _inertiaNaturalMs = 0; // ????????????????
+  double _inertiaTo = 0;
+
+  Size _viewport = Size.zero;
+  Size? _imageSize;
+  String? _resolvedKey;
+  bool _originalReady = false; // full-res decode finished
+  bool _warmingOriginal = false;
 
   @override
   void initState() {
     super.initState();
+    _photoController = PhotoViewController();
     _viewModel = DetailViewModel(
       item: widget.item,
       repository: widget.repository,
@@ -150,6 +258,8 @@ class _PhotoPageState extends State<_PhotoPage> {
 
   @override
   void dispose() {
+    _stopInertia();
+    _photoController.dispose();
     _viewModel.dispose();
     super.dispose();
   }
@@ -159,10 +269,17 @@ class _PhotoPageState extends State<_PhotoPage> {
     return ListenableBuilder(
       listenable: _viewModel,
       builder: (context, _) {
+        _maybeResolveImageSize();
+        _maybeWarmOriginal();
         return Stack(
           fit: StackFit.expand,
           children: [
-            _buildViewer(),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                _viewport = Size(constraints.maxWidth, constraints.maxHeight);
+                return _buildViewer();
+              },
+            ),
             AnimatedOpacity(
               opacity: widget.uiVisible ? 1 : 0,
               duration: const Duration(milliseconds: 200),
@@ -177,55 +294,404 @@ class _PhotoPageState extends State<_PhotoPage> {
     );
   }
 
+  /// Progressive: thumb -> screen-level preview -> original.
+  /// Full-res decode of a huge photo is slow; show a 2x-screen preview first,
+  /// then swap to full-res once _originalReady, so the user always sees a sharp image.
+  ImageProvider _buildImageProvider() {
+    final path = _viewModel.imagePath!;
+    if (!_viewModel.fullImageReady || _originalReady) {
+      return FileImage(File(path));
+    }
+    final targetWidth = (_viewport.width * 2).round().clamp(1200, 2400);
+    return ResizeImage(FileImage(File(path)), width: targetWidth);
+  }
+
   Widget _buildViewer() {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onToggleUi,
-      onLongPressStart: widget.item.isLive
-          ? (_) => _viewModel.startPlayback()
-          : null,
-      onLongPressEnd: widget.item.isLive
-          ? (_) => _viewModel.stopPlayback()
-          : null,
-      onLongPressCancel: widget.item.isLive ? _viewModel.stopPlayback : null,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_viewModel.loading)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            )
-          else if (_viewModel.imagePath == null)
-            Center(
-              child: Text(
-                '图片加载失败\n${_viewModel.error ?? ''}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70),
-              ),
-            )
-          else
-            Center(
-              child: Image.file(
-                File(_viewModel.imagePath!),
-                fit: BoxFit.contain,
-                errorBuilder: (_, _, _) => const Text(
-                  '无法显示图片',
-                  style: TextStyle(color: Colors.white70),
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart: widget.item.isLive
+            ? (_) => _viewModel.startPlayback()
+            : null,
+        onLongPressEnd: widget.item.isLive
+            ? (_) => _viewModel.stopPlayback()
+            : null,
+        onLongPressCancel: widget.item.isLive ? _viewModel.stopPlayback : null,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (_viewModel.loading)
+              const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              )
+            else if (_viewModel.imagePath == null)
+              Center(
+                child: Text(
+                  '图片加载失败\n${_viewModel.error ?? ''}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              )
+            else
+              PhotoView(
+                key: const Key('detail-photo-view'),
+                imageProvider: _buildImageProvider(),
+                gaplessPlayback: true,
+                controller: _photoController,
+                minScale: PhotoViewComputedScale.contained,
+                maxScale: 5.0,
+                scaleStateCycle: (state) {
+                  switch (state) {
+                    case PhotoViewScaleState.initial:
+                      return PhotoViewScaleState.covering;
+                    default:
+                      return PhotoViewScaleState.initial;
+                  }
+                },
+                backgroundDecoration:
+                    const BoxDecoration(color: Colors.black),
+                gestureDetectorBehavior: HitTestBehavior.opaque,
+                onTapUp: (_, _, _) => widget.onToggleUi(),
+                onScaleEnd: _onPhotoScaleEnd,
+                errorBuilder: (_, _, _) => const Center(
+                  child: Text(
+                    '无法显示图片',
+                    style: TextStyle(color: Colors.white70),
+                  ),
                 ),
               ),
-            ),
-          if (_viewModel.isPlaying && _viewModel.videoReady)
-            Center(
-              child: AspectRatio(
-                aspectRatio: _viewModel.controller!.value.aspectRatio,
-                child: VideoPlayer(_viewModel.controller!),
+            if (_viewModel.isPlaying && _viewModel.videoReady)
+              Center(
+                child: AspectRatio(
+                  aspectRatio: _viewModel.controller!.value.aspectRatio,
+                  child: VideoPlayer(_viewModel.controller!),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  // ---------- 被动指针监听：1x 翻页 + 放大后边界外推 ----------
+
+  void _onPointerDown(PointerDownEvent e) {
+    _activePointers.add(e.pointer);
+    _lastMoveStamp = e.timeStamp;
+    _lastVx = 0;
+    _stopInertia();
+    _flingConsumed = false;
+    if (_activePointers.length == 1) {
+      final range = _hRange;
+      final dx = _photoController.position.dx;
+      _gestureStartLeftEdge = range <= 0 || dx <= -range + 1.5;
+      _gestureStartRightEdge = range <= 0 || dx >= range - 1.5;
+      _panSlopDx = 0;
+    }
+    if (_activePointers.length >= 2) {
+      // 第二根手指落下：本次触摸会话进入“捏合优先”，放弃翻页/外推，
+      // 之后即使只剩一根手指也不再翻页，整段手势只缩放/平移。
+      _pinchSession = true;
+      _cancelPageGesture();
+    }
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    if (!_activePointers.contains(e.pointer) || _pinchSession) {
+      return; // 捏合会话：photo_view 处理缩放/平移，绝不动页面
+    }
+    if (_activePointers.length != 1) return;
+    final rawDx = e.delta.dx;
+    final rawDy = e.delta.dy;
+    final dt = (e.timeStamp - _lastMoveStamp).inMicroseconds;
+    if (dt > 0) _lastVx = rawDx / (dt / 1e6);
+    _lastMoveStamp = e.timeStamp;
+
+    final scale = _photoController.scale ?? _fitScale;
+
+    // 1x（贴合屏幕）：单指横向拖动翻页。
+    if (scale <= _fitScale * 1.02) {
+      if (!_pageDragging) {
+        _pageAccumDx += rawDx;
+        if (_pageAccumDx.abs() <= _touchSlop) return;
+        _pageDragging = true;
+        if (kDebugMode) {
+          debugPrint('[gesture] page-drag-start accum=$_pageAccumDx');
+        }
+        _pageTotalDx = _pageAccumDx > 0
+            ? _pageAccumDx - _touchSlop
+            : _pageAccumDx + _touchSlop;
+        widget.onPageDragStart();
+        widget.onPageDrag(_pageTotalDx);
+      } else {
+        _pageTotalDx += rawDx;
+        widget.onPageDrag(_pageTotalDx);
+      }
+      return;
+    }
+
+    // 放大后：photo_view 负责平移图片；滑到图片边界继续外推才翻页。
+    if (_edgeMode) {
+      _edgeDx += rawDx;
+      final backInside =
+          (_edgeDir < 0 && rawDx > 0 && _edgeDx >= 0) ||
+              (_edgeDir > 0 && rawDx < 0 && _edgeDx <= 0);
+      if (backInside) {
+        if (kDebugMode) {
+          debugPrint(
+              '[gesture] edge-back-inside dir=$_edgeDir rawDx=$rawDx edgeDx=$_edgeDx');
+        }
+        _edgeMode = false;
+        _edgeDir = 0;
+        _edgeDx = 0;
+        widget.onPageDragCancel();
+      } else {
+        widget.onPageDrag(_edgeDx);
+      }
+      return;
+    }
+
+    // 边界外推只允许“慢速/长按拖动”：推到图片真实边界继续推才切页。
+    // 快速甩动不参与（松手后按惯性滑到边缘停住，再次在边缘快滑才切页），
+    // 避免快速滑图片时被误判成切页。
+    final posX = _photoController.position.dx;
+    final range = _hRange;
+    final atLeftEdge = range <= 0 || posX <= -range + 1.0;
+    final atRightEdge = range <= 0 || posX >= range - 1.0;
+    final horizontal = rawDx.abs() >= rawDy.abs() * 1.2;
+    final fastFling = _lastVx.abs() > 900;
+    final pushingOutward =
+        (rawDx < 0 && atLeftEdge) || (rawDx > 0 && atRightEdge);
+
+    if (horizontal && pushingOutward && !fastFling) {
+      _panSlopDx += rawDx;
+      if (_panSlopDx.abs() > 30) {
+        _startEdgeMode(_panSlopDx > 0 ? 1 : -1, rawDx);
+        return;
+      }
+    } else {
+      _panSlopDx = 0;
+    }
+  }
+
+  void _startEdgeMode(int dir, double rawDx) {
+    if (kDebugMode) {
+      debugPrint('[gesture] edge-start dir=$dir rawDx=$rawDx');
+    }
+    _edgeMode = true;
+    _edgeDir = dir;
+    _edgeDx = rawDx;
+    widget.onPageDragStart();
+    widget.onPageDrag(rawDx);
+  }
+
+  void _onPointerUp(PointerUpEvent e) {
+    _activePointers.remove(e.pointer);
+    if (_activePointers.isEmpty) {
+      _pinchSession = false;
+      // 手指停住超过 120ms 视为无速度，避免慢速拖拽被误判为甩动切页。
+      if (e.timeStamp - _lastMoveStamp > const Duration(milliseconds: 120)) {
+        _lastVx = 0;
+      }
+      _finishGesture(_lastVx);
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent e) {
+    _activePointers.remove(e.pointer);
+    if (_activePointers.isEmpty) {
+      _pinchSession = false;
+      _finishGesture(0);
+    }
+  }
+
+  void _cancelPageGesture() {
+    if (_pageDragging) {
+      _pageDragging = false;
+      _pageAccumDx = 0;
+      _pageTotalDx = 0;
+      widget.onPageDragCancel();
+    }
+    if (_edgeMode) {
+      _edgeMode = false;
+      _edgeDir = 0;
+      _edgeDx = 0;
+      widget.onPageDragCancel();
+    }
+  }
+
+  void _finishGesture(double velocityX) {
+    if (_flingConsumed) return;
+    if (_pageDragging) {
+      _flingConsumed = true;
+      _pageDragging = false;
+      _pageAccumDx = 0;
+      _pageTotalDx = 0;
+      widget.onPageDragEnd(velocityX);
+      return;
+    }
+    if (_edgeMode) {
+      _flingConsumed = true;
+      _edgeMode = false;
+      _edgeDir = 0;
+      _edgeDx = 0;
+      widget.onPageDragEnd(velocityX);
+      return;
+    }
+    if (_pinchSession) return;
+    final scale = _photoController.scale ?? _fitScale;
+    if (scale <= _fitScale * 1.02 || velocityX.abs() < 500) return;
+
+    // 放大后的快速甩动：
+    // - 手势开始时已贴边缘且结束时仍在边缘 → 切页（沿用速度停靠）；
+    // - 否则只把图片按惯性滑到同方向边缘停住，不切页。
+    _flingConsumed = true;
+    final range = _hRange;
+    final dx = _photoController.position.dx;
+    final nowAtEdge = range <= 0 ||
+        (velocityX < 0 && dx <= -range + 1.0) ||
+        (velocityX > 0 && dx >= range - 1.0);
+    final startAtEdge = velocityX < 0
+        ? _gestureStartLeftEdge
+        : _gestureStartRightEdge;
+    if (startAtEdge && nowAtEdge) {
+      if (kDebugMode) {
+        debugPrint('[gesture] fling-edge-switch vx=$velocityX');
+      }
+      widget.onPageDragEnd(velocityX);
+    } else {
+      if (kDebugMode) {
+        debugPrint('[gesture] fling-inertia vx=$velocityX');
+      }
+      _startInertia(velocityX);
+    }
+  }
+
+  void _onPhotoScaleEnd(
+    BuildContext context,
+    ScaleEndDetails details,
+    PhotoViewControllerValue value,
+  ) {
+    _finishGesture(details.velocity.pixelsPerSecond.dx);
+  }
+
+  /// 当前缩放级别下图片可横向平移的幅度（单侧）。
+  double get _hRange {
+    final img = _imageSize;
+    if (img == null || img.isEmpty || _viewport == Size.zero) return 0;
+    final scale = _photoController.scale ?? _fitScale;
+    final contentW = img.width * scale;
+    return math.max(0.0, (contentW - _viewport.width) / 2);
+  }
+
+  /// 放大后快速甩动：让图片沿甩动方向惯性滑到边缘停住（不切页）。
+  void _startInertia(double velocityX) {
+    final range = _hRange;
+    if (range <= 0) return;
+    final dx = _photoController.position.dx;
+    final target = velocityX < 0 ? -range : range;
+    final distance = (target - dx).abs();
+    if (distance < 0.5) return;
+    // ????? t = 2*d/v0??????????????????
+    // easeOutQuad ????????????? easeOutCubic ?????
+    final speed = velocityX.abs().clamp(600.0, 4500.0).toDouble();
+    final ms = (2 * distance / speed * 1000).round().clamp(150, 1000).toDouble();
+    _stopInertia();
+    _inertiaFrom = dx;
+    _inertiaTo = target;
+    _inertiaNaturalMs = ms;
+    // ??? = ?????? + photo_view ?????????
+    // ? ms ????????????????????? photo_view ??????
+    _inertiaController = AnimationController(
+      vsync: this,
+      duration: Duration(
+        milliseconds: ms.toInt() + _photoViewFlingGuard.inMilliseconds,
+      ),
+    );
+    _inertiaController!.addListener(_onInertiaTick);
+    _inertiaController!.forward();
+  }
+
+  void _onInertiaTick() {
+    final totalMs = _inertiaController!.duration!.inMilliseconds;
+    final progress = _inertiaController!.value * totalMs / _inertiaNaturalMs;
+    final t = Curves.easeOutQuad.transform(progress.clamp(0.0, 1.0));
+    final newDx = _inertiaFrom + (_inertiaTo - _inertiaFrom) * t;
+    _photoController.position = Offset(newDx, _photoController.position.dy);
+  }
+
+  void _stopInertia() {
+    _inertiaController?.stop();
+    _inertiaController?.dispose();
+    _inertiaController = null;
+  }
+
+  /// photo_view 的 scale 相对原图尺寸；贴合屏幕（contained）时的比例。
+  double get _fitScale {
+    final img = _imageSize;
+    if (img == null || img.isEmpty || _viewport == Size.zero) return 1;
+    return math.min(_viewport.width / img.width, _viewport.height / img.height);
+  }
+
+  /// 读取图片真实尺寸（复用全局图片缓存，不额外完整解码原图）。
+  /// Track the size of the image that is CURRENTLY displayed (thumb/preview/original).
+  /// Gesture logic uses this size so swiping while a small image is shown behaves like 1x paging.
+  void _maybeResolveImageSize() {
+    final path = _viewModel.imagePath;
+    if (path == null || path.isEmpty) return;
+    final provider = _buildImageProvider();
+    final key = '$path|${provider.runtimeType}|$_originalReady';
+    if (key == _resolvedKey) return;
+    _resolvedKey = key;
+    _imageSize = null;
+    final stream = provider.resolve(ImageConfiguration.empty);
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        stream.removeListener(listener);
+        if (!mounted) return;
+        final w = info.image.width.toDouble();
+        final h = info.image.height.toDouble();
+        if (w <= 0 || h <= 0) return;
+        // This callback may fire synchronously during build; defer to end of frame.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() => _imageSize = Size(w, h));
+        });
+      },
+      onError: (_, _) => stream.removeListener(listener),
+    );
+    stream.addListener(listener);
+  }
+
+  /// Warm up full-res decode in the background; swap display to full-res once done.
+  void _maybeWarmOriginal() {
+    if (!_viewModel.fullImageReady || _originalReady || _warmingOriginal) {
+      return;
+    }
+    final path = _viewModel.imagePath;
+    if (path == null || path.isEmpty) return;
+    _warmingOriginal = true;
+    final provider = FileImage(File(path));
+    final stream = provider.resolve(ImageConfiguration.empty);
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        stream.removeListener(listener);
+        if (!mounted) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() => _originalReady = true);
+        });
+      },
+      onError: (_, _) => stream.removeListener(listener),
+    );
+    stream.addListener(listener);
+  }
   Widget _buildOverlay(BuildContext context) {
     final item = widget.item;
     return Stack(

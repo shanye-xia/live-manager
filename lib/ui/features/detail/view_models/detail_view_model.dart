@@ -63,6 +63,7 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   void _showThumb(String path) {
+    if (_fullImageReady) return; // already showing original, never downgrade to thumb
     _imagePath = path;
     _loading = false;
     notifyListeners();
@@ -78,6 +79,15 @@ class DetailViewModel extends ChangeNotifier {
       _error = e.toString();
       _fullImageError = e.toString();
     }
+
+    // Show original as soon as its path is ready; do not wait for video/EXIF.
+    if (fullPath != null && fullPath.isNotEmpty) {
+      _imagePath = fullPath;
+      _fullImageReady = true;
+      _loading = false;
+      notifyListeners();
+    }
+
     if (item.isLive) {
       try {
         videoPath = await repository.videoFilePathFor(item);
@@ -91,10 +101,6 @@ class DetailViewModel extends ChangeNotifier {
       // EXIF 缺失仅影响信息展示
     }
 
-    if (fullPath != null && fullPath.isNotEmpty) {
-      _imagePath = fullPath;
-      _fullImageReady = true;
-    }
     _videoPath = videoPath;
     _exif = exif;
     _loading = false;
