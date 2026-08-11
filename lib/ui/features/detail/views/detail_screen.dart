@@ -38,17 +38,29 @@ class DetailScreen extends StatefulWidget {
 }
 
 class _DetailScreenState extends State<DetailScreen> {
+  static const int _balancedPrefetchRadius = 4;
+  static const int _directionalForwardPrefetch = 8;
+  static const int _directionalBackPrefetch = 1;
+
   late final PageController _pageController;
   late List<PhotoItem> _items;
+  late int _currentIndex;
   bool _uiVisible = true;
   bool _pageDragActive = false;
   double _pageDragBase = 0;
+  double _lastPageDragDx = 0;
+  final Map<int, Future<void>> _prefetchJobs = {};
+  Future<void> _prefetchQueue = Future<void>.value();
 
   @override
   void initState() {
     super.initState();
     _items = List.of(widget.items);
+    _currentIndex = widget.initialIndex.clamp(0, _items.length - 1);
     _pageController = PageController(initialPage: widget.initialIndex);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _prefetchAround(_currentIndex, direction: 0);
+    });
   }
 
   @override
@@ -97,13 +109,18 @@ class _DetailScreenState extends State<DetailScreen> {
   /// 由图片手势层驱动（PageView 自身不参与手势竞争，避免捏合被误判为翻页）。
   void _startPageDrag() {
     if (!_pageController.hasClients || _pageDragActive) return;
+    final pixels = _pageController.position.pixels;
+    _pageController.jumpTo(pixels);
     _pageDragActive = true;
-    _pageDragBase = _pageController.position.pixels;
+    _pageDragBase = pixels;
+    _lastPageDragDx = 0;
   }
 
   void _updatePageDrag(double dx) {
     if (!_pageController.hasClients) return;
     if (!_pageDragActive) _startPageDrag();
+    _prefetchForDrag(dx);
+    _lastPageDragDx = dx;
     final pos = _pageController.position;
     final target = (_pageDragBase - dx).clamp(
       pos.minScrollExtent,
@@ -142,6 +159,9 @@ class _DetailScreenState extends State<DetailScreen> {
       duration: Duration(milliseconds: target == lower ? 160 : 240),
       curve: Curves.easeOutCubic,
     );
+    final direction = target.compareTo(_currentIndex);
+    _currentIndex = target;
+    _prefetchAround(target, direction: direction);
   }
 
   void _handleDeleted(int index, bool videoOnly) {
@@ -163,9 +183,66 @@ class _DetailScreenState extends State<DetailScreen> {
     if (!videoOnly && _items.isNotEmpty) {
       final target = index.clamp(0, _items.length - 1);
       _pageController.jumpToPage(target);
+      _currentIndex = target;
+      _prefetchAround(_currentIndex, direction: 0);
     }
     if (_items.isEmpty) {
       Navigator.of(context).maybePop();
+    }
+  }
+
+  void _prefetchForDrag(double dx) {
+    if ((dx - _lastPageDragDx).abs() < 12) return;
+    final direction = dx < 0 ? 1 : -1;
+    _prefetchAround(_currentIndex, direction: direction);
+  }
+
+  void _prefetchAround(int index, {required int direction}) {
+    if (direction == 0) {
+      for (var step = 1; step <= _balancedPrefetchRadius; step++) {
+        _prefetchIndex(index - step);
+        _prefetchIndex(index + step);
+      }
+      return;
+    }
+    for (var step = 1; step <= _directionalForwardPrefetch; step++) {
+      _prefetchIndex(index + direction * step);
+    }
+    for (var step = 1; step <= _directionalBackPrefetch; step++) {
+      _prefetchIndex(index - direction * step);
+    }
+  }
+
+  void _prefetchIndex(int index) {
+    if (index < 0 ||
+        index >= _items.length ||
+        _prefetchJobs.containsKey(index)) {
+      return;
+    }
+    final item = _items[index];
+    final job = _prefetchQueue.then((_) => _loadPreviewIntoCache(item));
+    _prefetchQueue = job.catchError((_) {});
+    _prefetchJobs[index] = job;
+  }
+
+  Future<void> _loadPreviewIntoCache(PhotoItem item) async {
+    try {
+      await widget.thumbnailLoader(item);
+    } catch (_) {
+      // Thumbnail cache miss/failure should not block full preview warm-up.
+    }
+    if (!mounted) return;
+    try {
+      final path = await widget.repository.fullImagePathFor(item);
+      if (!mounted || path.isEmpty) return;
+      final width = MediaQuery.sizeOf(context).width;
+      final targetWidth = (width * 2).round().clamp(1200, 2400);
+      await precacheImage(
+        ResizeImage(FileImage(File(path)), width: targetWidth),
+        context,
+      );
+    } catch (_) {
+      // Prefetch is opportunistic; the page will still load normally on demand.
     }
   }
 }
@@ -336,10 +413,14 @@ class _PhotoPageState extends State<_PhotoPage>
               )
             else
               PhotoView(
-                key: const Key('detail-photo-view'),
+                key: ValueKey(
+                  'detail-photo-${widget.item.imageId}-'
+                  '${_viewModel.imagePath}-$_originalReady',
+                ),
                 imageProvider: _buildImageProvider(),
                 gaplessPlayback: true,
                 controller: _photoController,
+                initialScale: PhotoViewComputedScale.contained,
                 minScale: PhotoViewComputedScale.contained,
                 maxScale: 5.0,
                 scaleStateCycle: (state) {

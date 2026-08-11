@@ -219,6 +219,7 @@ class _HomeScreenState extends State<HomeScreen>
                         constraints.maxWidth < 400 ? 120.0 : 160.0;
                     return CustomScrollView(
                       controller: _scrollController,
+                      cacheExtent: 0,
                       physics: const AlwaysScrollableScrollPhysics(),
                       slivers: [
                         SliverToBoxAdapter(
@@ -819,8 +820,7 @@ class _GridScrollRailState extends State<_GridScrollRail> {
       width: _GridScrollRail.railWidth,
       child: Stack(
         children: [
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 120),
+          Positioned(
             top: _thumbTop,
             right: 18,
             width: 12,

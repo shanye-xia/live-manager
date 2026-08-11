@@ -18,7 +18,7 @@ import java.io.IOException
 object LivePhotoThumbnails {
 
     /** 各缓存目录的磁盘配额（超过后删除最久未使用的文件，直到达标）。 */
-    private const val MAX_THUMBS_BYTES = 300L * 1024 * 1024
+    private const val MAX_THUMBS_BYTES = 100L * 1024 * 1024
     private const val MAX_FULL_BYTES = 400L * 1024 * 1024
     private const val MAX_VIDEO_BYTES = 400L * 1024 * 1024
 
