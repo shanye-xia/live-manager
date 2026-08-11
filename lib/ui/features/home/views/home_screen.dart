@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../domain/models/photo_item.dart';
+import '../../../core/exif_clear_options.dart';
 import '../../../core/formatters.dart';
 import '../../detail/views/detail_screen.dart';
 import '../view_models/home_view_model.dart';
@@ -26,6 +27,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
   final ScrollController _scrollController = ScrollController();
+  bool _showTopButton = false;
+  double _lastScrollPixels = 0;
+  Timer? _topButtonTimer;
+  double _summaryHeight = 56.0;
+  Timer? _summaryTimer;
+  bool _animatingToTop = false;
 
   // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
   double? _sweepRow0Top;
@@ -37,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen>
   Set<int> _sweepRange = {};
   bool _sweepSelectState = false;
   final GlobalKey _sweepViewportKey = GlobalKey();
+  final GlobalKey _summaryKey = GlobalKey();
   double _sweepStartScroll = 0;
   Offset _sweepLastPosition = Offset.zero;
   Timer? _sweepTimer;
@@ -51,11 +59,115 @@ class _HomeScreenState extends State<HomeScreen>
   List<PhotoItem> get _visibleItems =>
       widget.liveOnly ? widget.viewModel.liveItems : widget.viewModel.items;
 
+  List<_TimelineGroup> get _timelineGroups {
+    final todayItems = <PhotoItem>[];
+    final yesterdayItems = <PhotoItem>[];
+    final weekItems = <PhotoItem>[];
+    final monthItems = <String, List<PhotoItem>>{};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final weekStart = today.subtract(const Duration(days: 6));
+
+    for (final item in _visibleItems) {
+      final day = DateTime(
+        item.createTime.year,
+        item.createTime.month,
+        item.createTime.day,
+      );
+      if (day == today) {
+        todayItems.add(item);
+      } else if (day == yesterday) {
+        yesterdayItems.add(item);
+      } else if (!day.isBefore(weekStart)) {
+        weekItems.add(item);
+      } else {
+        final month = _monthTitle(item.createTime);
+        monthItems.putIfAbsent(month, () => <PhotoItem>[]).add(item);
+      }
+    }
+
+    final groups = <_TimelineGroup>[];
+    var start = 0;
+    void add(String title, List<PhotoItem> items) {
+      if (items.isEmpty) return;
+      groups.add(_TimelineGroup(title: title, items: items, startIndex: start));
+      start += items.length;
+    }
+
+    add('今天', todayItems);
+    add('昨天', yesterdayItems);
+    add('一周内', weekItems);
+    for (final entry in monthItems.entries) {
+      add(entry.key, entry.value);
+    }
+    return groups;
+  }
+
+  String _monthTitle(DateTime time) => '${time.year}年${time.month}月';
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onGridScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureSummary());
+  }
+
+  void _measureSummary() {
+    if (!mounted) return;
+    final size = _summaryKey.currentContext?.size;
+    if (size == null) return;
+    if ((size.height - _summaryHeight).abs() < 0.5) return;
+    setState(() => _summaryHeight = size.height);
+  }
+
   @override
   void dispose() {
     _stopSweepTimer();
+    _topButtonTimer?.cancel();
+    _summaryTimer?.cancel();
+    _scrollController.removeListener(_onGridScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onGridScroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    final delta = offset - _lastScrollPixels;
+    _lastScrollPixels = offset;
+    if (_animatingToTop) return;
+    if (widget.viewModel.selectionMode || offset < 400) {
+      _setTopButtonVisible(false);
+      return;
+    }
+    // 下滑（内容向顶部滚动）时显示；向上浏览深处时不打扰。
+    if (delta > -8) return;
+    _setTopButtonVisible(true);
+    _topButtonTimer?.cancel();
+    _topButtonTimer = Timer(
+      const Duration(seconds: 2),
+      () => _setTopButtonVisible(false),
+    );
+  }
+
+  void _setTopButtonVisible(bool value) {
+    if (_showTopButton == value) return;
+    setState(() => _showTopButton = value);
+  }
+
+  void _scrollToTop() {
+    _topButtonTimer?.cancel();
+    _setTopButtonVisible(false);
+    if (!_scrollController.hasClients) return;
+    _animatingToTop = true;
+    _scrollController
+        .animateTo(
+          0,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+        )
+        .whenComplete(() => _animatingToTop = false);
   }
 
   @override
@@ -107,6 +219,8 @@ class _HomeScreenState extends State<HomeScreen>
                 ? _SelectionActionBar(
                     showDeleteLive: widget.viewModel.selectedLiveCount > 0,
                     onDeleteLive: _confirmDeleteLiveParts,
+                    onShare: _shareSelected,
+                    onClearExif: _confirmClearSelectedExif,
                     onDelete: _confirmBatchDelete,
                   )
                 : null,
@@ -135,6 +249,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildGrid() {
+    // 信息栏收起时的高度：轨道起点与图片区顶部对齐。
+    final summaryHeight = _summaryHeight;
+    final groups = _timelineGroups;
     return RefreshIndicator(
       onRefresh: widget.viewModel.load,
       child: SizedBox.expand(
@@ -153,10 +270,13 @@ class _HomeScreenState extends State<HomeScreen>
                         constraints.maxWidth < 400 ? 120.0 : 160.0;
                     return CustomScrollView(
                       controller: _scrollController,
+                      cacheExtent: 0,
                       physics: const AlwaysScrollableScrollPhysics(),
                       slivers: [
                         SliverToBoxAdapter(
                           child: _SummaryBar(
+                            key: _summaryKey,
+                            onExpandedChanged: _onSummaryExpandedChanged,
                             liveOnly: widget.liveOnly,
                             count: _visibleItems.length,
                             liveCount: widget.viewModel.liveCount,
@@ -165,39 +285,50 @@ class _HomeScreenState extends State<HomeScreen>
                             liveVideoBytes: widget.viewModel.liveVideoTotalBytes,
                           ),
                         ),
-                        SliverPadding(
-                          padding: const EdgeInsets.all(2),
-                          sliver: SliverGrid(
-                            gridDelegate:
-                                SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: maxExtent,
-                              mainAxisSpacing: 2,
-                              crossAxisSpacing: 2,
-                            ),
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final item = _visibleItems[index];
-                                return _PhotoTile(
-                                  index: index,
-                                  item: item,
-                                  thumbnailFuture:
-                                      widget.viewModel.thumbnailPathFor(item),
-                                  selectionMode: widget.viewModel.selectionMode,
-                                  selected: widget.viewModel.selectedIds.contains(
-                                    item.imageId,
-                                  ),
-                                  onTap: () => widget.viewModel.selectionMode
-                                      ? widget.viewModel.toggleSelection(item)
-                                      : _openDetail(item),
-                                  onLongPress: () => widget.viewModel
-                                      .enterSelectionMode(item),
-                                  onSweepStart: _startSweep,
-                                );
-                              },
-                              childCount: _visibleItems.length,
+                        for (final group in groups) ...[
+                          SliverToBoxAdapter(
+                            child: _TimelineHeader(
+                              title: group.title,
+                              count: group.items.length,
                             ),
                           ),
-                        ),
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
+                            sliver: SliverGrid(
+                              gridDelegate:
+                                  SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: maxExtent,
+                                mainAxisSpacing: 2,
+                                crossAxisSpacing: 2,
+                              ),
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  final item = group.items[index];
+                                  final globalIndex = group.startIndex + index;
+                                  return _PhotoTile(
+                                    index: globalIndex,
+                                    item: item,
+                                    thumbnailFuture:
+                                        widget.viewModel.thumbnailPathFor(item),
+                                    onThumbnailError: () => widget.viewModel
+                                        .evictThumbnail(item),
+                                    selectionMode:
+                                        widget.viewModel.selectionMode,
+                                    selected: widget.viewModel.selectedIds
+                                        .contains(item.imageId),
+                                    onTap: () => widget.viewModel.selectionMode
+                                        ? widget.viewModel.toggleSelection(item)
+                                        : _openDetail(item),
+                                    onLongPress: () => widget.viewModel
+                                        .enterSelectionMode(item),
+                                    onSweepStart: _startSweep,
+                                  );
+                                },
+                                childCount: group.items.length,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     );
                   },
@@ -209,17 +340,64 @@ class _HomeScreenState extends State<HomeScreen>
               bottom: 0,
               child: LayoutBuilder(
                 builder: (context, railConstraints) {
-                  return _GridScrollRail(
-                    controller: _scrollController,
-                    trackHeight: railConstraints.maxHeight,
+                  final available = (railConstraints.maxHeight - summaryHeight)
+                      .clamp(0.0, railConstraints.maxHeight);
+                  final trackHeight = available;
+                  return Padding(
+                    padding: EdgeInsets.only(top: summaryHeight),
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: SizedBox(
+                        width: _GridScrollRail.railWidth,
+                        height: trackHeight,
+                        child: _GridScrollRail(
+                          controller: _scrollController,
+                          trackHeight: trackHeight,
+                          currentLabel: _scrollTimeLabel,
+                        ),
+                      ),
+                    ),
                   );
                 },
+              ),
+            ),
+            Positioned(
+              right: 56,
+              bottom: 18,
+              child: IgnorePointer(
+                ignoring: !_showTopButton,
+                child: AnimatedOpacity(
+                  opacity: _showTopButton ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: AnimatedScale(
+                    scale: _showTopButton ? 1 : 0.6,
+                    duration: const Duration(milliseconds: 180),
+                    child: FloatingActionButton.small(
+                      heroTag: 'backToTop-${widget.liveOnly}',
+                      onPressed: _scrollToTop,
+                      tooltip: '回到顶部',
+                      child: const Icon(Icons.arrow_upward),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  String? _scrollTimeLabel() {
+    if (!_scrollController.hasClients || _visibleItems.isEmpty) return null;
+    final position = _scrollController.position;
+    final max = position.maxScrollExtent;
+    final fraction = max <= 0 ? 0.0 : (position.pixels / max).clamp(0.0, 1.0);
+    final index = (fraction * (_visibleItems.length - 1))
+        .round()
+        .clamp(0, _visibleItems.length - 1);
+    return formatDateTime(_visibleItems[index].createTime);
   }
 
   Future<void> _openDetail(PhotoItem item) async {
@@ -318,6 +496,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Starts the sweep selection from an anchor tile: from an unselected
   /// tile selects, from a selected tile deselects.
+  void _onSummaryExpandedChanged(bool expanded) {
+    setState(() {});
+    _summaryTimer?.cancel();
+    _summaryTimer = Timer(
+      const Duration(milliseconds: 260),
+      _measureSummary,
+    );
+  }
+
   void _startSweep(
     int index,
     Offset tileTopLeft,
@@ -586,6 +773,39 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _confirmClearSelectedExif() async {
+    final count = widget.viewModel.selectedCount;
+    if (count == 0) return;
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => ExifClearDialog(
+        title: '清除敏感 EXIF？',
+        description: '将清除 $count 张照片中勾选的元数据。照片内容不会删除，但元数据修改后可能无法恢复。',
+      ),
+    );
+    if (selected == null || selected.isEmpty || !mounted) return;
+    ExifClearSelectionMemory.remember(selected);
+
+    final result = await _withProgress(
+      '正在清除敏感 EXIF…',
+      () => widget.viewModel.clearSelectedSensitiveExif(selected.toList()),
+    );
+    if (!mounted) return;
+    _showSnack(
+      result.failed > 0
+          ? '已清除 ${result.success} 张，${result.failed} 张失败'
+          : '已清除 ${result.success} 张',
+    );
+  }
+
+  Future<void> _shareSelected() async {
+    try {
+      await widget.viewModel.shareSelected();
+    } catch (_) {
+      if (mounted) _showSnack('分享失败');
+    }
+  }
+
   Future<T> _withProgress<T>(
     String message,
     Future<T> Function() action,
@@ -631,27 +851,86 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-/// 系统相册式可拖动竖向滚动条：整条轨道可点按/拖动跳转。
+/// 竖向滚动条：直接拖动跳转，单击不跳转（避免误触）。
+class _TimelineGroup {
+  const _TimelineGroup({
+    required this.title,
+    required this.items,
+    required this.startIndex,
+  });
+
+  final String title;
+  final List<PhotoItem> items;
+  final int startIndex;
+}
+
+class _TimelineHeader extends StatelessWidget {
+  const _TimelineHeader({required this.title, required this.count});
+
+  final String title;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            title,
+            style: textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.onSurface,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 1),
+            child: Text(
+              '$count 张',
+              style: textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+}
+
 class _GridScrollRail extends StatefulWidget {
   const _GridScrollRail({
     required this.controller,
     required this.trackHeight,
+    required this.currentLabel,
   });
+
+  /// 轨道触控区宽度。
+  static const double railWidth = 48;
 
   final ScrollController controller;
   final double trackHeight;
+  final String? Function() currentLabel;
 
   @override
   State<_GridScrollRail> createState() => _GridScrollRailState();
 }
 
 class _GridScrollRailState extends State<_GridScrollRail> {
-  static const double _railWidth = 26;
-  static const double _thumbMinHeight = 40;
+  static const double _thumbMinHeight = 48;
+  static const double _thumbHitWidth = 28;
+  static const double _thumbVisualWidth = 5;
 
   double _maxExtent = 0;
   double _thumbHeight = _thumbMinHeight;
   double _thumbTop = 0;
+  bool _dragging = false;
 
   @override
   void initState() {
@@ -684,12 +963,21 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     });
   }
 
-  void _jumpTo(Offset localPosition) {
+  void _dragBy(double deltaY) {
     final controller = widget.controller;
     if (!controller.hasClients || _maxExtent <= 0) return;
-    final fraction =
-        (localPosition.dy / widget.trackHeight).clamp(0.0, 1.0);
-    controller.jumpTo(fraction * _maxExtent);
+    final travel = widget.trackHeight - _thumbHeight;
+    if (travel <= 0) return;
+    final delta = deltaY / travel * _maxExtent;
+    final target = (controller.position.pixels + delta)
+        .clamp(0.0, _maxExtent)
+        .toDouble();
+    controller.jumpTo(target);
+  }
+
+  void _setDragging(bool value) {
+    if (_dragging == value) return;
+    setState(() => _dragging = value);
   }
 
   @override
@@ -697,45 +985,90 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     _update();
     if (_maxExtent <= 0) return const SizedBox.shrink();
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragUpdate: (details) => _jumpTo(details.localPosition),
-      onTapDown: (details) => _jumpTo(details.localPosition),
-      child: SizedBox(
-        width: _railWidth,
-        child: Stack(
-          children: [
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 120),
-              top: _thumbTop,
-              left: 0,
-              right: 0,
-              height: _thumbHeight,
-              child: Center(
-                child: Container(
-                  width: 5,
+    final label = widget.currentLabel();
+    final bubbleTop = widget.trackHeight <= 36
+        ? 0.0
+        : (_thumbTop + _thumbHeight / 2 - 18)
+            .clamp(0.0, widget.trackHeight - 36)
+            .toDouble();
+    return SizedBox(
+      width: _GridScrollRail.railWidth,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            top: bubbleTop,
+            right: 40,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _dragging && label != null ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.65),
-                    borderRadius: BorderRadius.circular(3),
+                    color: Colors.black.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    child: Text(
+                      label ?? '',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            top: _thumbTop,
+            right: 4,
+            width: _thumbHitWidth,
+            height: _thumbHeight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragStart: (_) => _setDragging(true),
+              onVerticalDragUpdate: (details) => _dragBy(details.delta.dy),
+              onVerticalDragEnd: (_) => _setDragging(false),
+              onVerticalDragCancel: () => _setDragging(false),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      _thumbVisualWidth / 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.32),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    width: _thumbVisualWidth,
+                    height: double.infinity,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(
+                          _thumbVisualWidth / 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -743,7 +1076,9 @@ class _GridScrollRailState extends State<_GridScrollRail> {
 
 class _SummaryBar extends StatefulWidget {
   const _SummaryBar({
+    super.key,
     this.liveOnly = false,
+    this.onExpandedChanged,
     required this.count,
     required this.liveCount,
     required this.totalBytes,
@@ -752,6 +1087,7 @@ class _SummaryBar extends StatefulWidget {
   });
 
   final bool liveOnly;
+  final ValueChanged<bool>? onExpandedChanged;
   final int count;
   final int liveCount;
   final int totalBytes;
@@ -775,7 +1111,10 @@ class _SummaryBarState extends State<_SummaryBar> {
         borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
+          onTap: () {
+            setState(() => _expanded = !_expanded);
+            widget.onExpandedChanged?.call(_expanded);
+          },
           child: AnimatedSize(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOut,
@@ -885,6 +1224,7 @@ class _PhotoTile extends StatefulWidget {
     required this.index,
     required this.item,
     required this.thumbnailFuture,
+    required this.onThumbnailError,
     required this.selectionMode,
     required this.selected,
     required this.onTap,
@@ -895,6 +1235,7 @@ class _PhotoTile extends StatefulWidget {
   final int index;
   final PhotoItem item;
   final Future<String> thumbnailFuture;
+  final VoidCallback onThumbnailError;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onTap;
@@ -913,6 +1254,7 @@ class _PhotoTile extends StatefulWidget {
 
 class _PhotoTileState extends State<_PhotoTile> {
   late Future<String> _thumbnailFuture;
+  bool _thumbnailRetryScheduled = false;
 
   @override
   void initState() {
@@ -940,6 +1282,20 @@ class _PhotoTileState extends State<_PhotoTile> {
     }
   }
 
+  void _scheduleThumbnailRetry() {
+    if (_thumbnailRetryScheduled) {
+      return;
+    }
+    _thumbnailRetryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      widget.onThumbnailError();
+      _thumbnailRetryScheduled = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -963,8 +1319,14 @@ class _PhotoTileState extends State<_PhotoTile> {
                   fit: BoxFit.cover,
                   cacheWidth: 512,
                   gaplessPlayback: true,
-                  errorBuilder: (_, _, _) => const _TilePlaceholder(),
+                  errorBuilder: (_, _, _) {
+                    _scheduleThumbnailRetry();
+                    return const _TilePlaceholder();
+                  },
                 );
+              }
+              if (snapshot.hasError) {
+                _scheduleThumbnailRetry();
               }
               return const _TilePlaceholder();
             },
@@ -1068,11 +1430,15 @@ class _SelectionActionBar extends StatelessWidget {
   const _SelectionActionBar({
     required this.showDeleteLive,
     required this.onDeleteLive,
+    required this.onShare,
+    required this.onClearExif,
     required this.onDelete,
   });
 
   final bool showDeleteLive;
   final VoidCallback onDeleteLive;
+  final VoidCallback onShare;
+  final VoidCallback onClearExif;
   final VoidCallback onDelete;
 
   @override
@@ -1092,6 +1458,16 @@ class _SelectionActionBar extends StatelessWidget {
                   label: '删除Live部分',
                   onTap: onDeleteLive,
                 ),
+              _ActionButton(
+                icon: Icons.ios_share_rounded,
+                label: '分享',
+                onTap: onShare,
+              ),
+              _ActionButton(
+                icon: Icons.privacy_tip_outlined,
+                label: '清EXIF',
+                onTap: onClearExif,
+              ),
               _ActionButton(
                 icon: Icons.delete_outline,
                 label: '删除',

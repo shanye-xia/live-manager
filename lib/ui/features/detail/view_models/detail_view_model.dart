@@ -63,6 +63,7 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   void _showThumb(String path) {
+    if (_fullImageReady) return; // already showing original, never downgrade to thumb
     _imagePath = path;
     _loading = false;
     notifyListeners();
@@ -78,6 +79,15 @@ class DetailViewModel extends ChangeNotifier {
       _error = e.toString();
       _fullImageError = e.toString();
     }
+
+    // Show original as soon as its path is ready; do not wait for video/EXIF.
+    if (fullPath != null && fullPath.isNotEmpty) {
+      _imagePath = fullPath;
+      _fullImageReady = true;
+      _loading = false;
+      notifyListeners();
+    }
+
     if (item.isLive) {
       try {
         videoPath = await repository.videoFilePathFor(item);
@@ -91,10 +101,6 @@ class DetailViewModel extends ChangeNotifier {
       // EXIF 缺失仅影响信息展示
     }
 
-    if (fullPath != null && fullPath.isNotEmpty) {
-      _imagePath = fullPath;
-      _fullImageReady = true;
-    }
     _videoPath = videoPath;
     _exif = exif;
     _loading = false;
@@ -140,6 +146,49 @@ class DetailViewModel extends ChangeNotifier {
     await controller.pause();
     _playing = false;
     notifyListeners();
+  }
+
+  Future<void> share() => repository.share(item);
+
+  Future<bool> updateExif(Map<String, String> values) async {
+    if (_busy) return false;
+    _busy = true;
+    try {
+      final ok = await repository.updateExif(item, values);
+      if (ok) {
+        try {
+          _exif = await repository.exifFor(item);
+          notifyListeners();
+        } catch (_) {}
+      }
+      return ok;
+    } catch (_) {
+      return false;
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<bool> clearSensitiveExif(List<String> groups) async {
+    if (_busy) return false;
+    _busy = true;
+    try {
+      final ok = await repository.clearSensitiveExif(item, groups);
+      if (ok) {
+        try {
+          _exif = await repository.exifFor(item);
+          notifyListeners();
+        } catch (_) {
+          _exif = const {};
+          notifyListeners();
+        }
+      }
+      return ok;
+    } catch (_) {
+      return false;
+    } finally {
+      _busy = false;
+    }
   }
 
   /// 把动态视频（或非 Live 照片）移入应用回收站。

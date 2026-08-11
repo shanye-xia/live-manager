@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -21,6 +22,14 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // 启动时收敛缩略图缓存配额（后台线程，避免阻塞首帧）
+        Thread {
+            LivePhotoThumbnails.enforceAllQuotas(applicationContext)
+        }.start()
+    }
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
@@ -47,9 +56,12 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS) {
             val granted = requiredPermissions()
                 .all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
@@ -57,6 +69,7 @@ class MainActivity : FlutterActivity() {
                 mapOf("granted" to granted, "pending" to false)
             )
             pendingPermissionResult = null
+            eventSink?.success(mapOf("type" to "permission", "granted" to granted))
         }
     }
 
@@ -75,9 +88,11 @@ class MainActivity : FlutterActivity() {
             "permissionStatus" -> result.success(permissionStatus())
             "scanAllPhotos" -> scanAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
-            "getFullImage" -> fileAsync(call, result, isVideo = false)
-            "getVideoFile" -> fileAsync(call, result, isVideo = true)
             "getExif" -> exifAsync(call, result)
+            "shareImage" -> shareImage(call, result)
+            "shareImages" -> shareImages(call, result)
+            "updateExif" -> updateExifAsync(call, result)
+            "clearSensitiveExif" -> clearSensitiveExifAsync(call, result)
             "moveToTrash" -> moveToTrashAsync(call, result)
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
             "openAllFilesAccessSettings" -> openAllFilesAccessSettings(result)
@@ -185,26 +200,74 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
-    private fun fileAsync(
-        call: MethodCall,
-        result: MethodChannel.Result,
-        isVideo: Boolean
-    ) {
-        val id = (call.argument<Number>("id"))?.toLong()
-            ?: return result.error("bad_args", "id 缺失", null)
-        val uri = call.argument<String>("uri")
-            ?: return result.error("bad_args", "uri 缺失", null)
+    private fun shareImage(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        try {
+            val uri = Uri.parse(imageUri)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/*"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "分享照片"))
+            result.success(true)
+        } catch (e: Throwable) {
+            result.error("share_failed", e.message, null)
+        }
+    }
 
+    private fun shareImages(call: MethodCall, result: MethodChannel.Result) {
+        val imageUris = call.argument<List<String>>("imageUris")
+            ?: return result.error("bad_args", "imageUris 缺失", null)
+        if (imageUris.isEmpty()) {
+            result.success(true)
+            return
+        }
+        try {
+            val uris = ArrayList<Uri>()
+            imageUris.forEach { uris.add(Uri.parse(it)) }
+            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "image/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "分享照片"))
+            result.success(true)
+        } catch (e: Throwable) {
+            result.error("share_failed", e.message, null)
+        }
+    }
+
+    private fun updateExifAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        val raw = call.argument<Map<String, Any?>>("values") ?: emptyMap()
+        val values = raw.mapValues { it.value?.toString().orEmpty() }
         Thread {
             try {
-                val path = if (isVideo) {
-                    LivePhotoThumbnails.videoFile(applicationContext, id, uri)
-                } else {
-                    LivePhotoThumbnails.fullImage(applicationContext, id, uri)
-                }
-                runOnUiThread { result.success(path) }
+                val ok = LivePhotoExif.update(applicationContext, imageUri, values)
+                runOnUiThread { result.success(mapOf("ok" to ok)) }
             } catch (e: Throwable) {
-                runOnUiThread { result.error("file_failed", e.message, null) }
+                runOnUiThread { result.error("exif_write_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun clearSensitiveExifAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        val groups = call.argument<List<String>>("groups") ?: emptyList()
+        Thread {
+            try {
+                val ok = LivePhotoExif.clearSensitive(
+                    applicationContext,
+                    imageUri,
+                    groups
+                )
+                runOnUiThread { result.success(mapOf("ok" to ok)) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("exif_clear_failed", e.message, null) }
             }
         }.start()
     }
@@ -219,6 +282,8 @@ class MainActivity : FlutterActivity() {
         val relativePath = call.argument<String>("relativePath") ?: ""
         val mediaType = call.argument<String>("mediaType") ?: "video"
         val dateTaken = (call.argument<Number>("dateTaken"))?.toLong() ?: 0L
+        val imageId = (call.argument<Number>("imageId"))?.toLong()
+        val videoId = (call.argument<Number>("videoId"))?.toLong()
 
         Thread {
             try {
@@ -228,7 +293,9 @@ class MainActivity : FlutterActivity() {
                     fileName,
                     relativePath,
                     mediaType,
-                    dateTaken
+                    dateTaken,
+                    imageId,
+                    videoId
                 )
                 runOnUiThread {
                     if (status == LivePhotoTrash.STATUS_OK) {

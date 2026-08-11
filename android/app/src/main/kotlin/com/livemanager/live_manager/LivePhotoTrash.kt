@@ -115,7 +115,9 @@ object LivePhotoTrash {
         fileName: String,
         relativePath: String,
         mediaType: String,
-        dateTaken: Long
+        dateTaken: Long,
+        imageId: Long? = null,
+        videoId: Long? = null
     ): Pair<TrashEntry?, String> {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
             !Environment.isExternalStorageManager()

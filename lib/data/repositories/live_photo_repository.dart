@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../domain/models/photo_item.dart';
 import '../../domain/models/trash_entry.dart';
 import '../services/live_photo_platform_service.dart';
@@ -18,14 +20,26 @@ abstract class LivePhotoRepository {
   /// 获取（并缓存）某张照片的缩略图文件路径。
   Future<String> thumbnailPathFor(PhotoItem item);
 
-  /// 获取原始图片的本地缓存路径（详情页大图）。
+  /// 获取原始图片的真实文件路径（详情页大图）。
   Future<String> fullImagePathFor(PhotoItem item);
 
-  /// 获取动态视频的本地缓存路径（长按播放）。
+  /// 获取动态视频的真实文件路径（长按播放）。
   Future<String> videoFilePathFor(PhotoItem item);
 
   /// 读取 JPG 的 EXIF 信息。
   Future<Map<String, dynamic>> exifFor(PhotoItem item);
+
+  /// 调用系统分享面板分享图片。
+  Future<void> share(PhotoItem item);
+
+  /// 调用系统分享面板分享多张图片。
+  Future<void> shareAll(List<PhotoItem> items);
+
+  /// 更新 EXIF 字段。
+  Future<bool> updateExif(PhotoItem item, Map<String, String> values);
+
+  /// 清除 GPS、设备、软件、拍摄时间等敏感 EXIF。
+  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups);
 
   /// 把动态视频（或非 Live 照片）移入应用回收站。
   /// 返回 {status, entry?}；status 为 ok / need_permission / failed。
@@ -63,6 +77,22 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
 
   final LivePhotoPlatformService _service;
 
+  Future<String> _directStoragePath(
+    PhotoItem item, {
+    required bool video,
+  }) async {
+    final relativePath = item.relativePath;
+    final fileName = video
+        ? '${item.displayName.replaceAll('.jpg', '')}.mp4'
+        : item.displayName;
+    if (relativePath.isEmpty || fileName.isEmpty) {
+      throw const FileSystemException('媒体文件路径为空');
+    }
+    final path = '/storage/emulated/0/$relativePath$fileName';
+    if (await File(path).exists()) return path;
+    throw FileSystemException('无法直接读取媒体文件', path);
+  }
+
   @override
   Future<List<PhotoItem>> scan() async {
     final permission = await _service.requestPermissions();
@@ -84,23 +114,37 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
 
   @override
   Future<String> fullImagePathFor(PhotoItem item) {
-    return _service.getFullImage(
-      imageId: item.imageId,
-      imageUri: item.imageUri,
-    );
+    return _directStoragePath(item, video: false);
   }
 
   @override
   Future<String> videoFilePathFor(PhotoItem item) {
-    return _service.getVideoFile(
-      videoId: item.videoId ?? 0,
-      videoUri: item.videoUri ?? '',
-    );
+    return _directStoragePath(item, video: true);
   }
 
   @override
   Future<Map<String, dynamic>> exifFor(PhotoItem item) {
     return _service.getExif(item.imageUri);
+  }
+
+  @override
+  Future<void> share(PhotoItem item) {
+    return _service.shareImage(item.imageUri);
+  }
+
+  @override
+  Future<void> shareAll(List<PhotoItem> items) {
+    return _service.shareImages(items.map((item) => item.imageUri).toList());
+  }
+
+  @override
+  Future<bool> updateExif(PhotoItem item, Map<String, String> values) {
+    return _service.updateExif(item.imageUri, values);
+  }
+
+  @override
+  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups) {
+    return _service.clearSensitiveExif(item.imageUri, groups);
   }
 
   @override
@@ -118,6 +162,8 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
       relativePath: item.relativePath,
       mediaType: deleteVideo ? 'video' : 'image',
       dateTaken: item.createTime.millisecondsSinceEpoch,
+      imageId: item.imageId,
+      videoId: item.videoId,
     );
   }
 

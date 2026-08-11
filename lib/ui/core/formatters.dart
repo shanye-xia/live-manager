@@ -40,9 +40,12 @@ List<(String, String)> formatExif(Map<String, dynamic> exif) {
   add('曝光补偿', _formatRational(exif['exposureBias'], unit: ' EV'));
   add('分辨率', '${exif['width']} × ${exif['height']}');
 
+  final address = (exif['gpsAddress'] as String?)?.trim();
   final lat = exif['latitude'];
   final lng = exif['longitude'];
-  if (lat is num && lng is num) {
+  if (address != null && address.isNotEmpty) {
+    add('GPS', address);
+  } else if (lat is num && lng is num) {
     add('GPS', '$lat, $lng');
   }
   return result;

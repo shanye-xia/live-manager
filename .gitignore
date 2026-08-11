@@ -49,3 +49,4 @@ app.*.map.json
 .agents/
 skills-lock.json
 .codex/
+.codex-backup/

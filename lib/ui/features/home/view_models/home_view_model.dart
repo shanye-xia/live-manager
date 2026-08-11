@@ -18,6 +18,16 @@ class BatchDeleteResult {
   final int failed;
 }
 
+class BatchExifResult {
+  const BatchExifResult({
+    required this.success,
+    required this.failed,
+  });
+
+  final int success;
+  final int failed;
+}
+
 /// 首页 ViewModel：管理扫描状态、照片列表与缩略图缓存。
 class HomeViewModel extends ChangeNotifier {
   HomeViewModel({required this.repository});
@@ -104,24 +114,30 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 后台预热全部缩略图（先解析路径、填充平台缓存），
-  /// 使得切换到 Live 页时缩略图已经就绪，避免滑动动画期间场景内重度加载。
-  void prewarmThumbnails() {
-    for (final item in _allItems) {
-      thumbnailPathFor(item).catchError((_) => '');
-    }
-  }
-
   /// 返回缩略图文件路径（同一 item 只请求一次，Future 记忆化）。
   Future<String> thumbnailPathFor(PhotoItem item) {
     return _thumbnailFutures.putIfAbsent(
       item.imageId,
       () async {
-        final path = await repository.thumbnailPathFor(item);
-        _thumbnailPaths[item.imageId] = path;
-        return path;
+        try {
+          final path = await repository.thumbnailPathFor(item);
+          _thumbnailPaths[item.imageId] = path;
+          return path;
+        } catch (_) {
+          _thumbnailFutures.remove(item.imageId);
+          _thumbnailPaths.remove(item.imageId);
+          rethrow;
+        }
       },
     );
+  }
+
+  void evictThumbnail(PhotoItem item) {
+    final removedFuture = _thumbnailFutures.remove(item.imageId);
+    final removedPath = _thumbnailPaths.remove(item.imageId);
+    if (removedFuture != null || removedPath != null) {
+      notifyListeners();
+    }
   }
 
   // ---- 多选 ----
@@ -335,6 +351,40 @@ class HomeViewModel extends ChangeNotifier {
       videoOnly: videoOnly,
       failed: failed,
     );
+  }
+
+  Future<BatchExifResult> clearSelectedSensitiveExif(
+    List<String> groups,
+  ) async {
+    final targets = _allItems
+        .where((e) => _selectedIds.contains(e.imageId))
+        .toList();
+    var success = 0;
+    var failed = 0;
+    for (final item in targets) {
+      try {
+        if (await repository.clearSensitiveExif(item, groups)) {
+          success++;
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    _selectionMode = false;
+    _selectedIds.clear();
+    _selectedLiveCount = 0;
+    notifyListeners();
+    return BatchExifResult(success: success, failed: failed);
+  }
+
+  Future<void> shareSelected() async {
+    final targets = _allItems
+        .where((e) => _selectedIds.contains(e.imageId))
+        .toList();
+    if (targets.isEmpty) return;
+    await repository.shareAll(targets);
   }
 
   /// 原地应用删除结果（不重新扫描）：动态视频被删则取消 LIVE 标记，

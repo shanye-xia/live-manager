@@ -33,8 +33,6 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _viewModel = HomeViewModel(repository: widget.repository)..load();
-    // 预热全部缩略图，使 tab 滑动切换时不重新加载图片。
-    _viewModel.prewarmThumbnails();
     _pageController = PageController();
     _pages = [
       HomeScreen(viewModel: _viewModel, liveOnly: false),
@@ -123,11 +121,13 @@ class _HomeShellState extends State<HomeShell> {
 /// 相比默认弹簧（mass 0.5 / stiffness 100 / ratio 1.1，要 700ms+
 /// 且带回弹）明显更快，消除滑动到底后"飘一下"的卡顿感。
 class _SnappyPageScrollPhysics extends PageScrollPhysics {
-  const _SnappyPageScrollPhysics();
+  const _SnappyPageScrollPhysics({super.parent});
 
   @override
   _SnappyPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
-    return _SnappyPageScrollPhysics();
+    // 保留祖先物理链（Android 上为 ClampingScrollPhysics），
+    // 使首尾页不能越界外滑，同时维持快速弹簧。
+    return _SnappyPageScrollPhysics(parent: buildParent(ancestor));
   }
 
   @override
