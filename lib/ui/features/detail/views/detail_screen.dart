@@ -105,8 +105,10 @@ class _DetailScreenState extends State<DetailScreen> {
     if (!_pageController.hasClients) return;
     if (!_pageDragActive) _startPageDrag();
     final pos = _pageController.position;
-    final target = (_pageDragBase - dx)
-        .clamp(pos.minScrollExtent, pos.maxScrollExtent);
+    final target = (_pageDragBase - dx).clamp(
+      pos.minScrollExtent,
+      pos.maxScrollExtent,
+    );
     _pageController.jumpTo(target);
   }
 
@@ -129,8 +131,7 @@ class _DetailScreenState extends State<DetailScreen> {
     final progress = fraction - lower;
     int target;
     if (velocityX.abs() > 500) {
-      target = (lower + (velocityX < 0 ? 1 : 0))
-          .clamp(0, _items.length - 1);
+      target = (lower + (velocityX < 0 ? 1 : 0)).clamp(0, _items.length - 1);
     } else if (progress > 0.5) {
       target = (lower + 1).clamp(0, _items.length - 1);
     } else {
@@ -210,7 +211,6 @@ class _PhotoPageState extends State<_PhotoPage>
   /// photo_view ????????? 1.6s ???????????????????
   /// ???????????????????
   static const Duration _photoViewFlingGuard = Duration(milliseconds: 1650);
-
 
   late final DetailViewModel _viewModel;
   late final PhotoViewController _photoController;
@@ -314,12 +314,10 @@ class _PhotoPageState extends State<_PhotoPage>
       onPointerCancel: _onPointerCancel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPressStart: widget.item.isLive
-            ? (_) => _viewModel.startPlayback()
-            : null,
-        onLongPressEnd: widget.item.isLive
-            ? (_) => _viewModel.stopPlayback()
-            : null,
+        onLongPressStart:
+            widget.item.isLive ? (_) => _viewModel.startPlayback() : null,
+        onLongPressEnd:
+            widget.item.isLive ? (_) => _viewModel.stopPlayback() : null,
         onLongPressCancel: widget.item.isLive ? _viewModel.stopPlayback : null,
         child: Stack(
           fit: StackFit.expand,
@@ -352,8 +350,7 @@ class _PhotoPageState extends State<_PhotoPage>
                       return PhotoViewScaleState.initial;
                   }
                 },
-                backgroundDecoration:
-                    const BoxDecoration(color: Colors.black),
+                backgroundDecoration: const BoxDecoration(color: Colors.black),
                 gestureDetectorBehavior: HitTestBehavior.opaque,
                 onTapUp: (_, _, _) => widget.onToggleUi(),
                 onScaleEnd: _onPhotoScaleEnd,
@@ -437,13 +434,13 @@ class _PhotoPageState extends State<_PhotoPage>
     // 放大后：photo_view 负责平移图片；滑到图片边界继续外推才翻页。
     if (_edgeMode) {
       _edgeDx += rawDx;
-      final backInside =
-          (_edgeDir < 0 && rawDx > 0 && _edgeDx >= 0) ||
-              (_edgeDir > 0 && rawDx < 0 && _edgeDx <= 0);
+      final backInside = (_edgeDir < 0 && rawDx > 0 && _edgeDx >= 0) ||
+          (_edgeDir > 0 && rawDx < 0 && _edgeDx <= 0);
       if (backInside) {
         if (kDebugMode) {
           debugPrint(
-              '[gesture] edge-back-inside dir=$_edgeDir rawDx=$rawDx edgeDx=$_edgeDx');
+            '[gesture] edge-back-inside dir=$_edgeDir rawDx=$rawDx edgeDx=$_edgeDx',
+          );
         }
         _edgeMode = false;
         _edgeDir = 0;
@@ -555,9 +552,8 @@ class _PhotoPageState extends State<_PhotoPage>
     final nowAtEdge = range <= 0 ||
         (velocityX < 0 && dx <= -range + 1.0) ||
         (velocityX > 0 && dx >= range - 1.0);
-    final startAtEdge = velocityX < 0
-        ? _gestureStartLeftEdge
-        : _gestureStartRightEdge;
+    final startAtEdge =
+        velocityX < 0 ? _gestureStartLeftEdge : _gestureStartRightEdge;
     if (startAtEdge && nowAtEdge) {
       if (kDebugMode) {
         debugPrint('[gesture] fling-edge-switch vx=$velocityX');
@@ -599,7 +595,8 @@ class _PhotoPageState extends State<_PhotoPage>
     // ????? t = 2*d/v0??????????????????
     // easeOutQuad ????????????? easeOutCubic ?????
     final speed = velocityX.abs().clamp(600.0, 4500.0).toDouble();
-    final ms = (2 * distance / speed * 1000).round().clamp(150, 1000).toDouble();
+    final ms =
+        (2 * distance / speed * 1000).round().clamp(150, 1000).toDouble();
     _stopInertia();
     _inertiaFrom = dx;
     _inertiaTo = target;
@@ -650,21 +647,18 @@ class _PhotoPageState extends State<_PhotoPage>
     _imageSize = null;
     final stream = provider.resolve(ImageConfiguration.empty);
     late final ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (info, _) {
-        stream.removeListener(listener);
+    listener = ImageStreamListener((info, _) {
+      stream.removeListener(listener);
+      if (!mounted) return;
+      final w = info.image.width.toDouble();
+      final h = info.image.height.toDouble();
+      if (w <= 0 || h <= 0) return;
+      // This callback may fire synchronously during build; defer to end of frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final w = info.image.width.toDouble();
-        final h = info.image.height.toDouble();
-        if (w <= 0 || h <= 0) return;
-        // This callback may fire synchronously during build; defer to end of frame.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() => _imageSize = Size(w, h));
-        });
-      },
-      onError: (_, _) => stream.removeListener(listener),
-    );
+        setState(() => _imageSize = Size(w, h));
+      });
+    }, onError: (_, _) => stream.removeListener(listener));
     stream.addListener(listener);
   }
 
@@ -679,19 +673,17 @@ class _PhotoPageState extends State<_PhotoPage>
     final provider = FileImage(File(path));
     final stream = provider.resolve(ImageConfiguration.empty);
     late final ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (info, _) {
-        stream.removeListener(listener);
+    listener = ImageStreamListener((info, _) {
+      stream.removeListener(listener);
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() => _originalReady = true);
-        });
-      },
-      onError: (_, _) => stream.removeListener(listener),
-    );
+        setState(() => _originalReady = true);
+      });
+    }, onError: (_, _) => stream.removeListener(listener));
     stream.addListener(listener);
   }
+
   Widget _buildOverlay(BuildContext context) {
     final item = widget.item;
     return Stack(
@@ -706,8 +698,10 @@ class _PhotoPageState extends State<_PhotoPage>
                     children: [
                       IconButton(
                         onPressed: () => Navigator.of(context).maybePop(),
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                            color: Colors.white70),
+                        icon: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          color: Colors.white70,
+                        ),
                       ),
                       Expanded(
                         child: Column(
@@ -735,14 +729,18 @@ class _PhotoPageState extends State<_PhotoPage>
                       IconButton(
                         tooltip: '详情',
                         onPressed: _showInfoSheet,
-                        icon: const Icon(Icons.info_outline_rounded,
-                            color: Colors.white70),
+                        icon: const Icon(
+                          Icons.info_outline_rounded,
+                          color: Colors.white70,
+                        ),
                       ),
                       IconButton(
                         tooltip: item.isLive ? '删除' : '删除照片',
                         onPressed: _confirmDelete,
-                        icon: const Icon(Icons.delete_outline_rounded,
-                            color: Colors.redAccent),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Colors.redAccent,
+                        ),
                       ),
                     ],
                   ),
@@ -753,10 +751,7 @@ class _PhotoPageState extends State<_PhotoPage>
                     '照片 ${formatBytes(item.imageSize)}'
                     '${item.isLive ? ' · 动态 ${formatBytes(item.videoSize ?? 0)}' : ''}'
                     ' · 总计 ${formatBytes(item.totalSize)}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
                 if (widget.item.isLive) ...[
@@ -991,10 +986,7 @@ class _PhotoPageState extends State<_PhotoPage>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _InfoSheet(
-        viewModel: _viewModel,
-        item: widget.item,
-      ),
+      builder: (_) => _InfoSheet(viewModel: _viewModel, item: widget.item),
     );
   }
 }
@@ -1204,10 +1196,7 @@ class _LoadingOriginalChip extends StatelessWidget {
             ),
           ),
           SizedBox(width: 6),
-          Text(
-            '加载原图…',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
+          Text('加载原图…', style: TextStyle(color: Colors.white70, fontSize: 12)),
         ],
       ),
     );

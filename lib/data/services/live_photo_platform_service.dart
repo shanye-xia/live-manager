@@ -4,10 +4,12 @@ import 'package:flutter/services.dart';
 class LivePhotoPlatformService {
   const LivePhotoPlatformService();
 
-  static const MethodChannel _channel =
-      MethodChannel('com.livemanager/live_photo');
-  static const EventChannel _events =
-      EventChannel('com.livemanager/live_photo_events');
+  static const MethodChannel _channel = MethodChannel(
+    'com.livemanager/live_photo',
+  );
+  static const EventChannel _events = EventChannel(
+    'com.livemanager/live_photo_events',
+  );
 
   /// 冒烟测试：与原生层完成一次通信，返回设备信息。
   Future<Map<String, dynamic>> ping() async {
@@ -17,15 +19,17 @@ class LivePhotoPlatformService {
 
   /// 请求媒体读取权限。返回 granted（是否已授权）与 pending（是否弹窗等待）。
   Future<Map<String, dynamic>> requestPermissions() async {
-    final result = await _channel
-        .invokeMapMethod<String, dynamic>('requestPermissions');
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'requestPermissions',
+    );
     return result ?? const {};
   }
 
   /// 查询当前权限状态。
   Future<Map<String, dynamic>> permissionStatus() async {
-    final result =
-        await _channel.invokeMapMethod<String, dynamic>('permissionStatus');
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'permissionStatus',
+    );
     return result ?? const {};
   }
 
@@ -51,34 +55,9 @@ class LivePhotoPlatformService {
     return path ?? '';
   }
 
-  /// 复制原始图片到缓存目录，返回本地文件路径（详情页大图）。
-  Future<String> getFullImage({
-    required int imageId,
-    required String imageUri,
-  }) async {
-    final path = await _channel.invokeMethod<String>('getFullImage', {
-      'id': imageId,
-      'uri': imageUri,
-    });
-    return path ?? '';
-  }
-
-  /// 复制动态视频到缓存目录，返回本地文件路径（长按播放）。
-  Future<String> getVideoFile({
-    required int videoId,
-    required String videoUri,
-  }) async {
-    final path = await _channel.invokeMethod<String>('getVideoFile', {
-      'id': videoId,
-      'uri': videoUri,
-    });
-    return path ?? '';
-  }
-
   /// 读取 JPG 的 EXIF 信息（只读）。
   Future<Map<String, dynamic>> getExif(String imageUri) async {
-    final result =
-        await _channel.invokeMapMethod<String, dynamic>('getExif', {
+    final result = await _channel.invokeMapMethod<String, dynamic>('getExif', {
       'imageUri': imageUri,
     });
     return result ?? const {};
@@ -94,18 +73,16 @@ class LivePhotoPlatformService {
     int? imageId,
     int? videoId,
   }) async {
-    final result = await _channel.invokeMapMethod<String, dynamic>(
-      'moveToTrash',
-      {
-        'uri': uri,
-        'fileName': fileName,
-        'relativePath': relativePath,
-        'mediaType': mediaType,
-        'dateTaken': dateTaken,
-        'imageId': imageId,
-        'videoId': videoId,
-      },
-    );
+    final result =
+        await _channel.invokeMapMethod<String, dynamic>('moveToTrash', {
+      'uri': uri,
+      'fileName': fileName,
+      'relativePath': relativePath,
+      'mediaType': mediaType,
+      'dateTaken': dateTaken,
+      'imageId': imageId,
+      'videoId': videoId,
+    });
     return result ?? const {};
   }
 
@@ -128,34 +105,34 @@ class LivePhotoPlatformService {
   }
 
   /// 回收站条目的预览图（图片解码/视频取帧），返回本地缓存路径。
-  Future<String> getTrashPreview({
-    required String id,
-    int size = 512,
-  }) async {
-    final path = await _channel
-        .invokeMethod<String>('getTrashPreview', {'id': id, 'size': size});
+  Future<String> getTrashPreview({required String id, int size = 512}) async {
+    final path = await _channel.invokeMethod<String>('getTrashPreview', {
+      'id': id,
+      'size': size,
+    });
     return path ?? '';
   }
 
   /// 从回收站恢复，返回新文件信息（供首页原地更新）。
   Future<Map<String, dynamic>?> restoreTrash(String id) async {
-    return await _channel.invokeMapMethod<String, dynamic>(
-      'restoreTrash',
-      {'id': id},
-    );
+    return await _channel.invokeMapMethod<String, dynamic>('restoreTrash', {
+      'id': id,
+    });
   }
 
   /// 彻底删除回收站条目。
   Future<bool> permanentDeleteTrash(String id) async {
-    final result = await _channel
-        .invokeMapMethod<String, dynamic>('permanentDeleteTrash', {'id': id});
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'permanentDeleteTrash',
+      {'id': id},
+    );
     return result?['ok'] == true;
   }
 
   /// 原生事件流（权限变化、删除结果等）。
   Stream<Map<String, dynamic>> events() {
-    return _events
-        .receiveBroadcastStream()
-        .map((e) => Map<String, dynamic>.from(e as Map));
+    return _events.receiveBroadcastStream().map(
+          (e) => Map<String, dynamic>.from(e as Map),
+        );
   }
 }

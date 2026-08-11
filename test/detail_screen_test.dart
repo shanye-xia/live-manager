@@ -146,63 +146,60 @@ void main() {
     return repository;
   }
 
-  testWidgets(
-    'live detail delete shows two options',
-    (WidgetTester tester) async {
-      await pumpDetail(
-        tester,
-        items: [liveItem, normalItem],
-        onDelete: (_, _) {},
-      );
+  testWidgets('live detail delete shows two options', (
+    WidgetTester tester,
+  ) async {
+    await pumpDetail(
+      tester,
+      items: [liveItem, normalItem],
+      onDelete: (_, _) {},
+    );
 
-      await tester.tap(find.byIcon(Icons.delete_outline_rounded));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+    await tester.pumpAndSettle();
 
-      expect(find.text('仅删除Live动态'), findsOneWidget);
-      expect(find.text('全部删除'), findsOneWidget);
-      expect(find.text('取消'), findsOneWidget);
-    },
-  );
+    expect(find.text('仅删除Live动态'), findsOneWidget);
+    expect(find.text('全部删除'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+  });
 
-  testWidgets(
-    'live video-only delete keeps photo',
-    (WidgetTester tester) async {
-      final calls = <(int, bool)>[];
-      final repository = await pumpDetail(
-        tester,
-        items: [liveItem, normalItem],
-        onDelete: (imageId, videoOnly) => calls.add((imageId, videoOnly)),
-      );
+  testWidgets('live video-only delete keeps photo', (
+    WidgetTester tester,
+  ) async {
+    final calls = <(int, bool)>[];
+    final repository = await pumpDetail(
+      tester,
+      items: [liveItem, normalItem],
+      onDelete: (imageId, videoOnly) => calls.add((imageId, videoOnly)),
+    );
 
-      await tester.tap(find.byIcon(Icons.delete_outline_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('仅删除Live动态'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仅删除Live动态'));
+    await tester.pumpAndSettle();
 
-      expect(calls, [(1, true)]);
-      expect(repository.deleteVideoCalls, [true]);
-      expect(find.text('已删除'), findsOneWidget);
-    },
-  );
+    expect(calls, [(1, true)]);
+    expect(repository.deleteVideoCalls, [true]);
+    expect(find.text('已删除'), findsOneWidget);
+  });
 
-  testWidgets(
-    'live full delete removes photo and video',
-    (WidgetTester tester) async {
-      final calls = <(int, bool)>[];
-      final repository = await pumpDetail(
-        tester,
-        items: [liveItem, normalItem],
-        onDelete: (imageId, videoOnly) => calls.add((imageId, videoOnly)),
-      );
+  testWidgets('live full delete removes photo and video', (
+    WidgetTester tester,
+  ) async {
+    final calls = <(int, bool)>[];
+    final repository = await pumpDetail(
+      tester,
+      items: [liveItem, normalItem],
+      onDelete: (imageId, videoOnly) => calls.add((imageId, videoOnly)),
+    );
 
-      await tester.tap(find.byIcon(Icons.delete_outline_rounded));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('全部删除'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全部删除'));
+    await tester.pumpAndSettle();
 
-      expect(calls, [(1, false)]);
-      expect(repository.deleteVideoCalls, [true, false]);
-      expect(find.text('已删除'), findsOneWidget);
-    },
-  );
+    expect(calls, [(1, false)]);
+    expect(repository.deleteVideoCalls, [true, false]);
+    expect(find.text('已删除'), findsOneWidget);
+  });
 }

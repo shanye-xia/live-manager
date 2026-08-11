@@ -144,13 +144,6 @@ object LivePhotoTrash {
             return null to STATUS_FAILED
         }
 
-        // 照片删除成功：同步清理应用缓存中的缩略图/原图/视频副本（可再生成，不影响系统相册）
-        if (mediaType == "video") {
-            LivePhotoThumbnails.removeCaches(context, null, videoId)
-        } else {
-            LivePhotoThumbnails.removeCaches(context, imageId, videoId)
-        }
-
         val entry = TrashEntry(
             id = id,
             originalFileName = fileName,

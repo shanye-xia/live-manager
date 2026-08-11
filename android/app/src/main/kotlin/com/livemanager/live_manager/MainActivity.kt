@@ -25,7 +25,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 启动时收敛应用缓存配额（后台线程，避免阻塞首帧）
+        // 启动时收敛缩略图缓存配额（后台线程，避免阻塞首帧）
         Thread {
             LivePhotoThumbnails.enforceAllQuotas(applicationContext)
         }.start()
@@ -84,8 +84,6 @@ class MainActivity : FlutterActivity() {
             "permissionStatus" -> result.success(permissionStatus())
             "scanAllPhotos" -> scanAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
-            "getFullImage" -> fileAsync(call, result, isVideo = false)
-            "getVideoFile" -> fileAsync(call, result, isVideo = true)
             "getExif" -> exifAsync(call, result)
             "moveToTrash" -> moveToTrashAsync(call, result)
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
@@ -190,30 +188,6 @@ class MainActivity : FlutterActivity() {
                 runOnUiThread { result.success(exif) }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("exif_failed", e.message, null) }
-            }
-        }.start()
-    }
-
-    private fun fileAsync(
-        call: MethodCall,
-        result: MethodChannel.Result,
-        isVideo: Boolean
-    ) {
-        val id = (call.argument<Number>("id"))?.toLong()
-            ?: return result.error("bad_args", "id 缺失", null)
-        val uri = call.argument<String>("uri")
-            ?: return result.error("bad_args", "uri 缺失", null)
-
-        Thread {
-            try {
-                val path = if (isVideo) {
-                    LivePhotoThumbnails.videoFile(applicationContext, id, uri)
-                } else {
-                    LivePhotoThumbnails.fullImage(applicationContext, id, uri)
-                }
-                runOnUiThread { result.success(path) }
-            } catch (e: Throwable) {
-                runOnUiThread { result.error("file_failed", e.message, null) }
             }
         }.start()
     }

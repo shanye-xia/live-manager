@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../domain/models/photo_item.dart';
 import '../../domain/models/trash_entry.dart';
 import '../services/live_photo_platform_service.dart';
@@ -18,10 +20,10 @@ abstract class LivePhotoRepository {
   /// 获取（并缓存）某张照片的缩略图文件路径。
   Future<String> thumbnailPathFor(PhotoItem item);
 
-  /// 获取原始图片的本地缓存路径（详情页大图）。
+  /// 获取原始图片的真实文件路径（详情页大图）。
   Future<String> fullImagePathFor(PhotoItem item);
 
-  /// 获取动态视频的本地缓存路径（长按播放）。
+  /// 获取动态视频的真实文件路径（长按播放）。
   Future<String> videoFilePathFor(PhotoItem item);
 
   /// 读取 JPG 的 EXIF 信息。
@@ -63,6 +65,22 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
 
   final LivePhotoPlatformService _service;
 
+  Future<String> _directStoragePath(
+    PhotoItem item, {
+    required bool video,
+  }) async {
+    final relativePath = item.relativePath;
+    final fileName = video
+        ? '${item.displayName.replaceAll('.jpg', '')}.mp4'
+        : item.displayName;
+    if (relativePath.isEmpty || fileName.isEmpty) {
+      throw const FileSystemException('媒体文件路径为空');
+    }
+    final path = '/storage/emulated/0/$relativePath$fileName';
+    if (await File(path).exists()) return path;
+    throw FileSystemException('无法直接读取媒体文件', path);
+  }
+
   @override
   Future<List<PhotoItem>> scan() async {
     final permission = await _service.requestPermissions();
@@ -84,18 +102,12 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
 
   @override
   Future<String> fullImagePathFor(PhotoItem item) {
-    return _service.getFullImage(
-      imageId: item.imageId,
-      imageUri: item.imageUri,
-    );
+    return _directStoragePath(item, video: false);
   }
 
   @override
   Future<String> videoFilePathFor(PhotoItem item) {
-    return _service.getVideoFile(
-      videoId: item.videoId ?? 0,
-      videoUri: item.videoUri ?? '',
-    );
+    return _directStoragePath(item, video: true);
   }
 
   @override
