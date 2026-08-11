@@ -54,6 +54,10 @@ abstract class LivePhotoRepository {
   /// 打开“所有文件访问”设置页。
   Future<void> openAllFilesAccessSettings();
 
+  /// 尝试用文件管理器打开照片所在目录。
+  /// 返回 folder / app / failed。
+  Future<String> openFolder(PhotoItem item);
+
   /// 回收站条目。
   Future<List<TrashEntry>> trashEntries();
 
@@ -173,6 +177,11 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   @override
   Future<void> openAllFilesAccessSettings() =>
       _service.openAllFilesAccessSettings();
+
+  @override
+  Future<String> openFolder(PhotoItem item) {
+    return _service.openFolder(item.relativePath);
+  }
 
   @override
   Future<List<TrashEntry>> trashEntries() async {

@@ -817,14 +817,6 @@ class _PhotoPageState extends State<_PhotoPage>
                           color: Colors.white70,
                         ),
                       ),
-                      IconButton(
-                        tooltip: item.isLive ? '删除' : '删除照片',
-                        onPressed: _confirmDelete,
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          color: Colors.redAccent,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -887,6 +879,13 @@ class _PhotoPageState extends State<_PhotoPage>
                           icon: Icons.edit_note_rounded,
                           label: '编辑',
                           onTap: _showEditSheet,
+                        ),
+                        const SizedBox(width: 16),
+                        _BottomActionButton(
+                          icon: Icons.delete_outline_rounded,
+                          label: '删除',
+                          color: Colors.redAccent,
+                          onTap: _confirmDelete,
                         ),
                       ],
                     ),
@@ -1552,11 +1551,13 @@ class _BottomActionButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.color = Colors.white,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -1568,12 +1569,12 @@ class _BottomActionButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white, size: 22),
+            Icon(icon, color: color, size: 22),
             const SizedBox(height: 3),
             Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: color,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
@@ -1596,6 +1597,7 @@ class _InfoSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final rows = <(String, String)>[
       ('文件名', item.displayName),
+      ('路径', _displayPath(item)),
       ('拍摄时间', formatDateTime(item.createTime)),
       ('照片', formatBytes(item.imageSize)),
       if (item.isLive) ('动态', formatBytes(item.videoSize ?? 0)),
@@ -1646,6 +1648,9 @@ class _InfoSheet extends StatelessWidget {
                           _InfoRow(
                             label: label,
                             value: value,
+                            onTap: label == '路径'
+                                ? () => _openFolder(context)
+                                : null,
                             extraValue: label == 'GPS' ? gpsNumbers : null,
                             expanded: label == 'GPS' && showGpsNumbers,
                             onToggle: label == 'GPS' && gpsNumbers != null
@@ -1666,6 +1671,31 @@ class _InfoSheet extends StatelessWidget {
     );
   }
 
+  String _displayPath(PhotoItem item) {
+    final relativePath = item.relativePath.trim();
+    if (relativePath.isEmpty) return item.displayName;
+    return '$relativePath${item.displayName}';
+  }
+
+  Future<void> _openFolder(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status = await viewModel.repository.openFolder(item);
+      if (!context.mounted) return;
+      final message = switch (status) {
+        'folder' => '已尝试打开所在位置',
+        'app' => '文件管理器未开放定位入口，已打开文件管理器首页',
+        _ => '无法打开文件管理器',
+      };
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('无法打开文件管理器')),
+      );
+    }
+  }
+
   String? _gpsNumbers(Map<String, dynamic>? exif) {
     if (exif == null) return null;
     final address = (exif['gpsAddress'] as String?)?.trim();
@@ -1684,6 +1714,7 @@ class _InfoRow extends StatelessWidget {
     required this.value,
     this.extraValue,
     this.expanded = false,
+    this.onTap,
     this.onToggle,
   });
 
@@ -1691,6 +1722,7 @@ class _InfoRow extends StatelessWidget {
   final String value;
   final String? extraValue;
   final bool expanded;
+  final VoidCallback? onTap;
   final VoidCallback? onToggle;
 
   @override
@@ -1716,7 +1748,9 @@ class _InfoRow extends StatelessWidget {
                   onLongPress: () => _copy(context, value),
                   child: Text(
                     value,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(
+                      color: onTap == null ? Colors.white : Colors.lightBlueAccent,
+                    ),
                   ),
                 ),
                 if (expanded && extraValue != null) ...[
@@ -1744,8 +1778,8 @@ class _InfoRow extends StatelessWidget {
         ],
       ),
     );
-    if (onToggle != null) {
-      return InkWell(onTap: onToggle, child: content);
+    if (onToggle != null || onTap != null) {
+      return InkWell(onTap: onToggle ?? onTap, child: content);
     }
     return content;
   }

@@ -140,6 +140,14 @@ class LivePhotoPlatformService {
     await _channel.invokeMethod<void>('openAllFilesAccessSettings');
   }
 
+  /// 尝试用系统文件管理器打开相对目录。
+  Future<String> openFolder(String relativePath) async {
+    final result = await _channel.invokeMethod<String>('openFolder', {
+      'relativePath': relativePath,
+    });
+    return result ?? 'failed';
+  }
+
   /// 回收站条目列表。
   Future<List<Map<String, dynamic>>> listTrash() async {
     final result = await _channel.invokeListMethod<dynamic>('listTrash');

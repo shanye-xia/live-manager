@@ -39,6 +39,8 @@ class _FakeRepository implements LivePhotoRepository {
   @override
   Future<void> openAllFilesAccessSettings() async {}
   @override
+  Future<String> openFolder(PhotoItem item) async => 'folder';
+  @override
   Future<List<TrashEntry>> trashEntries() async => const [];
   @override
   Future<String> trashPreviewPath(TrashEntry entry, {int size = 512}) async => '/fake/trash.jpg';

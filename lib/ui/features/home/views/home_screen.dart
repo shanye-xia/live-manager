@@ -15,10 +15,14 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.viewModel,
     this.liveOnly = false,
+    this.title,
+    this.itemFilter,
   });
 
   final HomeViewModel viewModel;
   final bool liveOnly;
+  final String? title;
+  final List<PhotoItem> Function(HomeViewModel viewModel)? itemFilter;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -56,8 +60,11 @@ class _HomeScreenState extends State<HomeScreen>
 
 
   /// Visible items for this tab (all photos, or cached live-only view).
-  List<PhotoItem> get _visibleItems =>
-      widget.liveOnly ? widget.viewModel.liveItems : widget.viewModel.items;
+  List<PhotoItem> get _visibleItems {
+    final filter = widget.itemFilter;
+    if (filter != null) return filter(widget.viewModel);
+    return widget.liveOnly ? widget.viewModel.liveItems : widget.viewModel.items;
+  }
 
   List<_TimelineGroup> get _timelineGroups {
     final todayItems = <PhotoItem>[];
@@ -203,7 +210,10 @@ class _HomeScreenState extends State<HomeScreen>
                   : null,
               title: selectionMode
                   ? _SelectionSummary(viewModel: widget.viewModel)
-                  : Text(widget.liveOnly ? 'Live 动态' : 'Live Manager'),
+                  : Text(
+                      widget.title ??
+                          (widget.liveOnly ? 'Live 动态' : 'Live Manager'),
+                    ),
               centerTitle: selectionMode,
               actions: selectionMode
                   ? [

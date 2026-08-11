@@ -2,6 +2,7 @@ package com.livemanager.live_manager
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -96,6 +97,7 @@ class MainActivity : FlutterActivity() {
             "moveToTrash" -> moveToTrashAsync(call, result)
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
             "openAllFilesAccessSettings" -> openAllFilesAccessSettings(result)
+            "openFolder" -> openFolder(call, result)
             "listTrash" -> listTrashAsync(result)
             "getTrashPreview" -> trashPreviewAsync(call, result)
             "restoreTrash" -> trashActionAsync(call, result, restore = true)
@@ -147,6 +149,133 @@ class MainActivity : FlutterActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
         }
         result.success(true)
+    }
+
+    private fun openFolder(call: MethodCall, result: MethodChannel.Result) {
+        val relativePath = call.argument<String>("relativePath") ?: ""
+        val normalized = relativePath
+            .replace("\\", "/")
+            .trim('/')
+        val absolutePath = if (normalized.isBlank()) {
+            "/storage/emulated/0"
+        } else {
+            "/storage/emulated/0/$normalized"
+        }
+        val intents = fileManagerIntents(absolutePath)
+        for ((intent, status) in intents) {
+            try {
+                startActivity(intent)
+                result.success(status)
+                return
+            } catch (_: Throwable) {
+                // Try the next fallback.
+            }
+        }
+        result.success("failed")
+    }
+
+    private fun fileManagerIntents(path: String): List<Pair<Intent, String>> {
+        val intents = mutableListOf<Pair<Intent, String>>()
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val candidates = packageManager.queryIntentActivities(launcher, 0)
+            .mapNotNull { info ->
+                val score = fileManagerScore(
+                    info.activityInfo.packageName,
+                    info.activityInfo.name,
+                    info.loadLabel(packageManager).toString()
+                )
+                if (score <= 0) null else score to info
+            }
+            .sortedByDescending { it.first }
+
+        candidates.forEach { (_, info) ->
+            val component = ComponentName(
+                info.activityInfo.packageName,
+                info.activityInfo.name
+            )
+            intents += Intent(Intent.ACTION_VIEW)
+                .setComponent(component)
+                .setDataAndType(Uri.parse("file://$path"), "resource/folder")
+                .asFileManagerIntent(path) to "folder"
+            intents += Intent(Intent.ACTION_VIEW)
+                .setComponent(component)
+                .setDataAndType(Uri.parse("file://$path"), "*/*")
+                .asFileManagerIntent(path) to "folder"
+        }
+
+        candidates.forEach { (_, info) ->
+            intents += Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+                .setComponent(
+                    ComponentName(
+                        info.activityInfo.packageName,
+                        info.activityInfo.name
+                    )
+                )
+                .asFileManagerIntent(path) to "app"
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intents += Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_APP_FILES)
+                .asFileManagerIntent(path) to "app"
+        }
+        return intents
+    }
+
+    private fun fileManagerScore(pkg: String, activity: String, label: String): Int {
+        if (pkg == packageName) return 0
+        val text = "$pkg $activity $label".lowercase()
+        if (text.contains("documentsui")) return 0
+        var score = 0
+        val strongKeywords = listOf(
+            "文件管理",
+            "文件管理器",
+            "filemanager",
+            "file.manager",
+            "file_manager",
+            "myfiles",
+            "my files",
+            "hidisk",
+            "explorer"
+        )
+        val weakKeywords = listOf(
+            "文件",
+            "files",
+            "file",
+            "manager",
+            "storage",
+            "disk"
+        )
+        strongKeywords.forEach { if (text.contains(it)) score += 80 }
+        weakKeywords.forEach { if (text.contains(it)) score += 20 }
+        if (pkg.startsWith("com.android.")) score += 8
+        if (pkg.contains("vivo") || pkg.contains("bbk")) score += 12
+        if (pkg.contains("mi") || pkg.contains("huawei") || pkg.contains("oppo") ||
+            pkg.contains("coloros") || pkg.contains("samsung") || pkg.contains("sec.android")) {
+            score += 10
+        }
+        return score
+    }
+
+    private fun Intent.asFileManagerIntent(path: String): Intent {
+        return apply {
+            putExtra("path", path)
+            putExtra("file_path", path)
+            putExtra("filepath", path)
+            putExtra("folderPath", path)
+            putExtra("folder_path", path)
+            putExtra("explorer_path", path)
+            putExtra("current_directory", path)
+            putExtra("current_path", path)
+            putExtra("root_directory", path)
+            putExtra("select_path", path)
+            putExtra("start_path", path)
+            putExtra("extra_path", path)
+            putExtra("EXTRA_PATH", path)
+            putExtra("android.provider.extra.INITIAL_URI", Uri.parse("file://$path"))
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
     }
 
     // ---- 只读：扫描 / 缩略图 / EXIF / 原图 / 视频 ----
