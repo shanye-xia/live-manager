@@ -119,7 +119,14 @@ object LivePhotoThumbnails {
 
     private fun decode(context: Context, uri: Uri, sizePx: Int): Bitmap {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return context.contentResolver.loadThumbnail(uri, Size(sizePx, sizePx), null)
+            try {
+                return context.contentResolver.loadThumbnail(uri, Size(sizePx, sizePx), null)
+            } catch (_: Throwable) {
+                // Some MediaStore providers fail to produce a thumbnail even
+                // though the original image stream is readable. Fall back to
+                // decoding a bounded bitmap from the image itself so the grid
+                // does not get stuck on a permanent loading placeholder.
+            }
         }
         return decodeLegacy(context, uri, sizePx)
     }

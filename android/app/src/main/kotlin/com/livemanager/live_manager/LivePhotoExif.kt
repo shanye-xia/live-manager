@@ -1,8 +1,10 @@
 package com.livemanager.live_manager
 
 import android.content.Context
+import android.location.Geocoder
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
+import java.util.Locale
 
 /** EXIF 读取：第一版只读不改，返回结构化字段供详情页展示。 */
 object LivePhotoExif {
@@ -31,8 +33,31 @@ object LivePhotoExif {
             if (latLong != null) {
                 values["latitude"] = latLong[0]
                 values["longitude"] = latLong[1]
+                values["gpsAddress"] = reverseGeocode(context, latLong[0], latLong[1])
             }
         }
         return values
+    }
+
+    @Suppress("DEPRECATION")
+    private fun reverseGeocode(context: Context, latitude: Double, longitude: Double): String {
+        return try {
+            val address = Geocoder(context, Locale.getDefault())
+                .getFromLocation(latitude, longitude, 1)
+                ?.firstOrNull()
+                ?: return ""
+            listOf(
+                address.adminArea,
+                address.locality,
+                address.subAdminArea,
+                address.subLocality
+            )
+                .mapNotNull { it?.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .joinToString(" ")
+        } catch (_: Throwable) {
+            ""
+        }
     }
 }

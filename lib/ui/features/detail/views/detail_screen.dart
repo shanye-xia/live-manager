@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:photo_view/photo_view.dart';
 
@@ -789,7 +790,7 @@ class _PhotoPageState extends State<_PhotoPage>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              item.displayName,
+                              formatDateTime(item.createTime),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -1185,6 +1186,8 @@ class _InfoSheet extends StatelessWidget {
       ('总计', formatBytes(item.totalSize)),
     ];
     final exif = viewModel.exif;
+    final gpsNumbers = _gpsNumbers(exif);
+    var showGpsNumbers = false;
     if (exif != null) {
       rows.addAll(formatExif(exif));
     }
@@ -1219,31 +1222,25 @@ class _InfoSheet extends StatelessWidget {
             const SizedBox(height: 8),
             Flexible(
               child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    for (final (label, value) in rows)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 76,
-                              child: Text(
-                                label,
-                                style: const TextStyle(color: Colors.white38),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                value,
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+                child: StatefulBuilder(
+                  builder: (context, setSheetState) {
+                    return Column(
+                      children: [
+                        for (final (label, value) in rows)
+                          _InfoRow(
+                            label: label,
+                            value: value,
+                            extraValue: label == 'GPS' ? gpsNumbers : null,
+                            expanded: label == 'GPS' && showGpsNumbers,
+                            onToggle: label == 'GPS' && gpsNumbers != null
+                                ? () => setSheetState(
+                                      () => showGpsNumbers = !showGpsNumbers,
+                                    )
+                                : null,
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -1251,6 +1248,126 @@ class _InfoSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String? _gpsNumbers(Map<String, dynamic>? exif) {
+    if (exif == null) return null;
+    final address = (exif['gpsAddress'] as String?)?.trim();
+    final lat = exif['latitude'];
+    final lng = exif['longitude'];
+    if (address == null || address.isEmpty || lat is! num || lng is! num) {
+      return null;
+    }
+    return '$lat, $lng';
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    this.extraValue,
+    this.expanded = false,
+    this.onToggle,
+  });
+
+  final String label;
+  final String value;
+  final String? extraValue;
+  final bool expanded;
+  final VoidCallback? onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white38),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onLongPress: () => _copy(context, value),
+                  child: Text(
+                    value,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                if (expanded && extraValue != null) ...[
+                  const SizedBox(height: 2),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPress: () => _copy(context, extraValue!),
+                    child: Text(
+                      extraValue!,
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (onToggle != null)
+            Icon(
+              expanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              color: Colors.white38,
+              size: 18,
+            ),
+        ],
+      ),
+    );
+    if (onToggle != null) {
+      return InkWell(onTap: onToggle, child: content);
+    }
+    return content;
+  }
+
+  Future<void> _copy(BuildContext context, String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    final overlay = Overlay.of(context);
+    final entry = OverlayEntry(
+      builder: (context) => Positioned(
+        left: 0,
+        right: 0,
+        bottom: 96,
+        child: IgnorePointer(
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Text(
+                  '已复制',
+                  style: TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(milliseconds: 900), entry.remove);
   }
 }
 

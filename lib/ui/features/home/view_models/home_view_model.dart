@@ -109,11 +109,25 @@ class HomeViewModel extends ChangeNotifier {
     return _thumbnailFutures.putIfAbsent(
       item.imageId,
       () async {
-        final path = await repository.thumbnailPathFor(item);
-        _thumbnailPaths[item.imageId] = path;
-        return path;
+        try {
+          final path = await repository.thumbnailPathFor(item);
+          _thumbnailPaths[item.imageId] = path;
+          return path;
+        } catch (_) {
+          _thumbnailFutures.remove(item.imageId);
+          _thumbnailPaths.remove(item.imageId);
+          rethrow;
+        }
       },
     );
+  }
+
+  void evictThumbnail(PhotoItem item) {
+    final removedFuture = _thumbnailFutures.remove(item.imageId);
+    final removedPath = _thumbnailPaths.remove(item.imageId);
+    if (removedFuture != null || removedPath != null) {
+      notifyListeners();
+    }
   }
 
   // ---- 多选 ----
