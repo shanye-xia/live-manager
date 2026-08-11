@@ -36,6 +36,9 @@ class _FakeRepository implements LivePhotoRepository {
   }
 
   @override
+  Future<List<PhotoItem>> cachedScanSnapshot() async => const [];
+
+  @override
   Future<String> thumbnailPathFor(PhotoItem item) async {
     return '/nonexistent/${item.imageId}.jpg';
   }
@@ -183,15 +186,16 @@ class _FakeGridRepository extends _FakeRepository {
           imageSize: 1000 + i,
           relativePath: 'DCIM/Camera/',
           videoId: i == 0 ? 1000 : null,
-          videoUri: i == 0
-              ? 'content://media/external/video/media/1000'
-              : null,
+          videoUri: i == 0 ? 'content://media/external/video/media/1000' : null,
           videoSize: i == 0 ? 2000 : null,
           videoDurationMs: i == 0 ? 1500 : null,
           isLive: i == 0,
         ),
     ];
   }
+
+  @override
+  Future<List<PhotoItem>> cachedScanSnapshot() async => const [];
 }
 
 void main() {
@@ -213,7 +217,9 @@ void main() {
     expect(find.text('LIVE'), findsOneWidget);
   });
 
-  testWidgets('selection mode back exits selection mode instead of app', (WidgetTester tester) async {
+  testWidgets('selection mode back exits selection mode instead of app', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
     await tester.pumpAndSettle();
 
@@ -232,7 +238,9 @@ void main() {
     expect(find.text('取消'), findsNothing);
   });
 
-  testWidgets('long-press and drag over grid selects multiple photos', (WidgetTester tester) async {
+  testWidgets('long-press and drag over grid selects multiple photos', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
     await tester.pumpAndSettle();
 
@@ -247,7 +255,9 @@ void main() {
     expect(find.textContaining('已选 2 项'), findsOneWidget);
   });
 
-  testWidgets('selection bar hides delete-live button when no live selected', (WidgetTester tester) async {
+  testWidgets('selection bar hides delete-live button when no live selected', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
     await tester.pumpAndSettle();
 
@@ -265,7 +275,9 @@ void main() {
     expect(find.text('删除Live部分'), findsNothing);
   });
 
-  testWidgets('horizontal swipe in selection mode selects', (WidgetTester tester) async {
+  testWidgets('horizontal swipe in selection mode selects', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
@@ -288,7 +300,9 @@ void main() {
     expect(find.textContaining('已选 3 项'), findsOneWidget);
   });
 
-  testWidgets('diagonal sweep selects whole rows crossed', (WidgetTester tester) async {
+  testWidgets('diagonal sweep selects whole rows crossed', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
@@ -312,7 +326,9 @@ void main() {
     expect(find.textContaining('已选 8 项'), findsOneWidget);
   });
 
-  testWidgets('sweep down then back up deselects crossed rows', (WidgetTester tester) async {
+  testWidgets('sweep down then back up deselects crossed rows', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
@@ -337,7 +353,9 @@ void main() {
     expect(find.textContaining('已选 3 项'), findsOneWidget);
   });
 
-  testWidgets('vertical swipe pages without selecting', (WidgetTester tester) async {
+  testWidgets('vertical swipe pages without selecting', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
@@ -346,22 +364,29 @@ void main() {
     expect(find.textContaining('已选 1 项'), findsOneWidget);
 
     final before = tester.getTopLeft(find.text('LIVE')).dy;
-    await tester.drag(find.text('LIVE'), const Offset(0, -300),
-        warnIfMissed: false);
+    await tester.drag(
+      find.text('LIVE'),
+      const Offset(0, -300),
+      warnIfMissed: false,
+    );
     await tester.pumpAndSettle();
     final after = tester.getTopLeft(find.text('LIVE')).dy;
 
     expect(after, lessThan(before)); // 列表向上翻页
     expect(find.textContaining('已选 1 项'), findsOneWidget); // 纵向滑动不选中
   });
-  testWidgets('bottom nav switches to Live-only grid', (WidgetTester tester) async {
+  testWidgets('bottom nav switches to Live-only grid', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.text('Live'),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Live'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Live 动态'), findsOneWidget);
@@ -370,7 +395,9 @@ void main() {
     expect(find.text('1 张'), findsOneWidget);
   });
 
-  testWidgets('selection mode hides bottom navigation', (WidgetTester tester) async {
+  testWidgets('selection mode hides bottom navigation', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
@@ -389,10 +416,12 @@ void main() {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.text('回收站'),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('回收站'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('回收站为空'), findsOneWidget);
@@ -416,13 +445,17 @@ void main() {
     expect(find.text('Live 动态'), findsOneWidget);
   });
 
-  testWidgets('trash selection: long-press, select-all, batch delete', (WidgetTester tester) async {
+  testWidgets('trash selection: long-press, select-all, batch delete', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeTrashRepository()));
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.text('回收站'),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('回收站'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('IMG_DEL_1.jpg'), findsOneWidget);
@@ -448,19 +481,25 @@ void main() {
     expect(find.text('IMG_DEL_1.jpg'), findsNothing);
   });
 
-  testWidgets('trash restore-all keeps empty state', (WidgetTester tester) async {
+  testWidgets('trash restore-all keeps empty state', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeTrashRepository()));
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-      of: find.byType(NavigationBar),
-      matching: find.text('回收站'),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('回收站'),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.descendant(
-      of: find.byType(AppBar),
-      matching: find.byIcon(Icons.restore),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.restore),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('全部恢复？'), findsOneWidget);
     await tester.tap(find.text('全部恢复'));

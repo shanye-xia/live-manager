@@ -58,12 +58,13 @@ class _HomeScreenState extends State<HomeScreen>
   int _lastPointerDown = -1;
   Set<int> _sweepPreSelected = {};
 
-
   /// Visible items for this tab (all photos, or cached live-only view).
   List<PhotoItem> get _visibleItems {
     final filter = widget.itemFilter;
     if (filter != null) return filter(widget.viewModel);
-    return widget.liveOnly ? widget.viewModel.liveItems : widget.viewModel.items;
+    return widget.liveOnly
+        ? widget.viewModel.liveItems
+        : widget.viewModel.items;
   }
 
   List<_TimelineGroup> get _timelineGroups {
@@ -199,8 +200,9 @@ class _HomeScreenState extends State<HomeScreen>
             appBar: AppBar(
               leading: selectionMode
                   ? TextButton(
-                      onPressed: () => widget.viewModel
-                          .toggleSelectAllVisible(_visibleItems),
+                      onPressed: () => widget.viewModel.toggleSelectAllVisible(
+                        _visibleItems,
+                      ),
                       child: Text(
                         widget.viewModel.allVisibleSelected(_visibleItems)
                             ? '取消全选'
@@ -244,7 +246,10 @@ class _HomeScreenState extends State<HomeScreen>
     switch (widget.viewModel.status) {
       case HomeStatus.initial:
       case HomeStatus.loading:
-        return const Center(child: CircularProgressIndicator());
+        if (_visibleItems.isNotEmpty) {
+          return _buildGrid();
+        }
+        return const _StartupGridSkeleton();
       case HomeStatus.error:
         return _ErrorView(
           message: widget.viewModel.error ?? '未知错误',
@@ -270,78 +275,76 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Listener(
               onPointerDown: (e) => _lastPointerDown = e.pointer,
-              onPointerMove: (e) =>
-                  _onSweepPointerMove(e.pointer, e.position),
+              onPointerMove: (e) => _onSweepPointerMove(e.pointer, e.position),
               onPointerUp: (e) => _onSweepPointerEnd(e.pointer),
               onPointerCancel: (e) => _onSweepPointerEnd(e.pointer),
               child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final maxExtent =
-                        constraints.maxWidth < 400 ? 120.0 : 160.0;
-                    return CustomScrollView(
-                      controller: _scrollController,
-                      cacheExtent: 0,
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      slivers: [
+                builder: (context, constraints) {
+                  final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
+                  return CustomScrollView(
+                    controller: _scrollController,
+                    cacheExtent: 0,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: _SummaryBar(
+                          key: _summaryKey,
+                          onExpandedChanged: _onSummaryExpandedChanged,
+                          liveOnly: widget.liveOnly,
+                          count: _visibleItems.length,
+                          liveCount: widget.viewModel.liveCount,
+                          totalBytes: widget.viewModel.totalBytes,
+                          liveImageBytes: widget.viewModel.liveImageTotalBytes,
+                          liveVideoBytes: widget.viewModel.liveVideoTotalBytes,
+                        ),
+                      ),
+                      for (final group in groups) ...[
                         SliverToBoxAdapter(
-                          child: _SummaryBar(
-                            key: _summaryKey,
-                            onExpandedChanged: _onSummaryExpandedChanged,
-                            liveOnly: widget.liveOnly,
-                            count: _visibleItems.length,
-                            liveCount: widget.viewModel.liveCount,
-                            totalBytes: widget.viewModel.totalBytes,
-                            liveImageBytes: widget.viewModel.liveImageTotalBytes,
-                            liveVideoBytes: widget.viewModel.liveVideoTotalBytes,
+                          child: _TimelineHeader(
+                            title: group.title,
+                            count: group.items.length,
                           ),
                         ),
-                        for (final group in groups) ...[
-                          SliverToBoxAdapter(
-                            child: _TimelineHeader(
-                              title: group.title,
-                              count: group.items.length,
-                            ),
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
+                          sliver: SliverGrid(
+                            gridDelegate:
+                                SliverGridDelegateWithMaxCrossAxisExtent(
+                                  maxCrossAxisExtent: maxExtent,
+                                  mainAxisSpacing: 2,
+                                  crossAxisSpacing: 2,
+                                ),
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
+                              final item = group.items[index];
+                              final globalIndex = group.startIndex + index;
+                              return _PhotoTile(
+                                index: globalIndex,
+                                item: item,
+                                thumbnailFuture: widget.viewModel
+                                    .thumbnailPathFor(item),
+                                onThumbnailError: () =>
+                                    widget.viewModel.evictThumbnail(item),
+                                selectionMode: widget.viewModel.selectionMode,
+                                selected: widget.viewModel.selectedIds.contains(
+                                  item.imageId,
+                                ),
+                                onTap: () => widget.viewModel.selectionMode
+                                    ? widget.viewModel.toggleSelection(item)
+                                    : _openDetail(item),
+                                onLongPress: () =>
+                                    widget.viewModel.enterSelectionMode(item),
+                                onSweepStart: _startSweep,
+                              );
+                            }, childCount: group.items.length),
                           ),
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
-                            sliver: SliverGrid(
-                              gridDelegate:
-                                  SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: maxExtent,
-                                mainAxisSpacing: 2,
-                                crossAxisSpacing: 2,
-                              ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, index) {
-                                  final item = group.items[index];
-                                  final globalIndex = group.startIndex + index;
-                                  return _PhotoTile(
-                                    index: globalIndex,
-                                    item: item,
-                                    thumbnailFuture:
-                                        widget.viewModel.thumbnailPathFor(item),
-                                    onThumbnailError: () => widget.viewModel
-                                        .evictThumbnail(item),
-                                    selectionMode:
-                                        widget.viewModel.selectionMode,
-                                    selected: widget.viewModel.selectedIds
-                                        .contains(item.imageId),
-                                    onTap: () => widget.viewModel.selectionMode
-                                        ? widget.viewModel.toggleSelection(item)
-                                        : _openDetail(item),
-                                    onLongPress: () => widget.viewModel
-                                        .enterSelectionMode(item),
-                                    onSweepStart: _startSweep,
-                                  );
-                                },
-                                childCount: group.items.length,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ],
-                    );
-                  },
+                    ],
+                  );
+                },
               ),
             ),
             Positioned(
@@ -404,9 +407,10 @@ class _HomeScreenState extends State<HomeScreen>
     final position = _scrollController.position;
     final max = position.maxScrollExtent;
     final fraction = max <= 0 ? 0.0 : (position.pixels / max).clamp(0.0, 1.0);
-    final index = (fraction * (_visibleItems.length - 1))
-        .round()
-        .clamp(0, _visibleItems.length - 1);
+    final index = (fraction * (_visibleItems.length - 1)).round().clamp(
+      0,
+      _visibleItems.length - 1,
+    );
     return formatDateTime(_visibleItems[index].createTime);
   }
 
@@ -418,8 +422,7 @@ class _HomeScreenState extends State<HomeScreen>
       // 缩略图失败不阻塞进入详情
     }
     if (!mounted) return;
-    final index = _visibleItems
-        .indexWhere((e) => e.imageId == item.imageId);
+    final index = _visibleItems.indexWhere((e) => e.imageId == item.imageId);
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => DetailScreen(
@@ -438,7 +441,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-
   Future<void> _confirmBatchDelete() async {
     final count = widget.viewModel.selectedCount;
     if (count == 0) return;
@@ -452,10 +454,9 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Text(
               '共 ${formatBytes(widget.viewModel.selectedTotalBytes)}',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             if (widget.viewModel.selectedLiveVideoBytes > 0) ...[
               const SizedBox(height: 4),
@@ -468,8 +469,8 @@ class _HomeScreenState extends State<HomeScreen>
             Text(
               '删除后可在回收站恢复。',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -509,10 +510,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _onSummaryExpandedChanged(bool expanded) {
     setState(() {});
     _summaryTimer?.cancel();
-    _summaryTimer = Timer(
-      const Duration(milliseconds: 260),
-      _measureSummary,
-    );
+    _summaryTimer = Timer(const Duration(milliseconds: 260), _measureSummary);
   }
 
   void _startSweep(
@@ -569,8 +567,7 @@ class _HomeScreenState extends State<HomeScreen>
         ((globalPosition.dy - row0Top + scrollDelta + 0.5) / _sweepExtent)
             .floor();
     if (row < 0) return;
-    final col =
-        ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
+    final col = ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
     _applyRange(row, col);
   }
 
@@ -612,8 +609,7 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
     }
-    if (next.length == _sweepRange.length &&
-        next.containsAll(_sweepRange)) {
+    if (next.length == _sweepRange.length && next.containsAll(_sweepRange)) {
       return;
     }
     final toEnter = next.difference(_sweepRange);
@@ -698,8 +694,7 @@ class _HomeScreenState extends State<HomeScreen>
         ((globalPosition.dy - row0Top + scrollDelta + 0.5) / _sweepExtent)
             .floor();
     if (row < 0) return;
-    final col =
-        ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
+    final col = ((globalPosition.dx - gridLeft + 0.5) / _sweepExtent).floor();
     _applyRange(row, col);
   }
 
@@ -737,10 +732,9 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Text(
               '共 ${formatBytes(widget.viewModel.selectedLiveVideoBytes)}',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 4),
             Text('将删除 $liveCount 张 Live 图的动态视频，照片保留。'),
@@ -748,8 +742,8 @@ class _HomeScreenState extends State<HomeScreen>
             Text(
               '普通照片不受影响。',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -861,6 +855,51 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
+class _StartupGridSkeleton extends StatelessWidget {
+  const _StartupGridSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return CustomScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: Container(
+            height: 92,
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '正在读取照片',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 120,
+              mainAxisSpacing: 2,
+              crossAxisSpacing: 2,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.55,
+                  ),
+                ),
+              ),
+              childCount: 36,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 竖向滚动条：直接拖动跳转，单击不跳转（避免误触）。
 class _TimelineGroup {
   const _TimelineGroup({
@@ -911,7 +950,6 @@ class _TimelineHeader extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _GridScrollRail extends StatefulWidget {
@@ -999,8 +1037,8 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     final bubbleTop = widget.trackHeight <= 36
         ? 0.0
         : (_thumbTop + _thumbHeight / 2 - 18)
-            .clamp(0.0, widget.trackHeight - 36)
-            .toDouble();
+              .clamp(0.0, widget.trackHeight - 36)
+              .toDouble();
     return SizedBox(
       width: _GridScrollRail.railWidth,
       child: Stack(
@@ -1051,9 +1089,7 @@ class _GridScrollRailState extends State<_GridScrollRail> {
                 alignment: Alignment.centerRight,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(
-                      _thumbVisualWidth / 2,
-                    ),
+                    borderRadius: BorderRadius.circular(_thumbVisualWidth / 2),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.32),
@@ -1135,22 +1171,23 @@ class _SummaryBarState extends State<_SummaryBar> {
               ),
               child: Row(
                 children: [
-if (!widget.liveOnly) ...[                  Expanded(
-                    child: _buildColumn(
-                      scheme,
-                      icon: Icons.photo_library_outlined,
-                      label: '全部照片',
-                      color: scheme.primary,
-                      countText: '${widget.count} 张',
-                      detailTexts: [
-                        formatBytes(widget.totalBytes),
-                      ],
+                  if (!widget.liveOnly) ...[
+                    Expanded(
+                      child: _buildColumn(
+                        scheme,
+                        icon: Icons.photo_library_outlined,
+                        label: '全部照片',
+                        color: scheme.primary,
+                        countText: '${widget.count} 张',
+                        detailTexts: [formatBytes(widget.totalBytes)],
+                      ),
                     ),
-                  ),                  Container(
-                    width: 1,
-                    height: _expanded ? 56 : 32,
-                    color: scheme.outlineVariant.withValues(alpha: 0.5),
-                  )],
+                    Container(
+                      width: 1,
+                      height: _expanded ? 56 : 32,
+                      color: scheme.outlineVariant.withValues(alpha: 0.5),
+                    ),
+                  ],
                   Expanded(
                     child: _buildColumn(
                       scheme,
@@ -1198,8 +1235,7 @@ if (!widget.liveOnly) ...[                  Expanded(
             const SizedBox(width: 4),
             Text(
               label,
-              style: textTheme.labelSmall
-                  ?.copyWith(color: scheme.outline),
+              style: textTheme.labelSmall?.copyWith(color: scheme.outline),
             ),
           ],
         ),
@@ -1256,7 +1292,7 @@ class _PhotoTile extends StatefulWidget {
     double tileSize,
     bool currentlySelected,
   )
-      onSweepStart;
+  onSweepStart;
 
   @override
   State<_PhotoTile> createState() => _PhotoTileState();
@@ -1342,11 +1378,7 @@ class _PhotoTileState extends State<_PhotoTile> {
             },
           ),
           if (widget.item.isLive)
-            const Positioned(
-              top: 6,
-              left: 6,
-              child: _LiveBadge(),
-            ),
+            const Positioned(top: 6, left: 6, child: _LiveBadge()),
           if (widget.item.isLive)
             Positioned(
               bottom: 6,
@@ -1508,10 +1540,10 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final background =
-        destructive ? Colors.redAccent : scheme.secondaryContainer;
-    final foreground =
-        destructive ? Colors.white : scheme.onSecondaryContainer;
+    final background = destructive
+        ? Colors.redAccent
+        : scheme.secondaryContainer;
+    final foreground = destructive ? Colors.white : scheme.onSecondaryContainer;
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -1629,11 +1661,13 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.perm_media_outlined,
-                size: 56, color: Colors.orangeAccent),
+            const Icon(
+              Icons.perm_media_outlined,
+              size: 56,
+              color: Colors.orangeAccent,
+            ),
             const SizedBox(height: 16),
-            Text('无法扫描照片',
-                style: Theme.of(context).textTheme.titleLarge),
+            Text('无法扫描照片', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
               message,

@@ -16,12 +16,16 @@ class _FakeRepository implements LivePhotoRepository {
 
   @override
   Future<List<PhotoItem>> scan() async => const [];
+
+  @override
+  Future<List<PhotoItem>> cachedScanSnapshot() async => const [];
   @override
   Future<String> thumbnailPathFor(PhotoItem item) async => imagePath;
   @override
   Future<String> fullImagePathFor(PhotoItem item) async => imagePath;
   @override
-  Future<String> videoFilePathFor(PhotoItem item) async => '/fake/${item.videoId}.mp4';
+  Future<String> videoFilePathFor(PhotoItem item) async =>
+      '/fake/${item.videoId}.mp4';
   @override
   Future<Map<String, dynamic>> exifFor(PhotoItem item) async => const {};
   @override
@@ -29,11 +33,16 @@ class _FakeRepository implements LivePhotoRepository {
   @override
   Future<void> shareAll(List<PhotoItem> items) async {}
   @override
-  Future<bool> updateExif(PhotoItem item, Map<String, String> values) async => true;
+  Future<bool> updateExif(PhotoItem item, Map<String, String> values) async =>
+      true;
   @override
-  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups) async => true;
+  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups) async =>
+      true;
   @override
-  Future<Map<String, dynamic>> moveToTrash(PhotoItem item, {required bool deleteVideo}) async => const {'status': 'ok'};
+  Future<Map<String, dynamic>> moveToTrash(
+    PhotoItem item, {
+    required bool deleteVideo,
+  }) async => const {'status': 'ok'};
   @override
   Future<bool> hasAllFilesAccess() async => true;
   @override
@@ -43,7 +52,8 @@ class _FakeRepository implements LivePhotoRepository {
   @override
   Future<List<TrashEntry>> trashEntries() async => const [];
   @override
-  Future<String> trashPreviewPath(TrashEntry entry, {int size = 512}) async => '/fake/trash.jpg';
+  Future<String> trashPreviewPath(TrashEntry entry, {int size = 512}) async =>
+      '/fake/trash.jpg';
   @override
   Future<Map<String, dynamic>?> restoreTrash(String id) async => null;
   @override
@@ -71,18 +81,18 @@ void main() {
   });
 
   PhotoItem item(int id, {bool live = false}) => PhotoItem(
-        imageId: id,
-        imageUri: 'content://media/external/images/media/$id',
-        displayName: 'IMG_$id.jpg',
-        createTime: DateTime(2026, 8, 1),
-        imageSize: 1000,
-        relativePath: 'DCIM/Camera/',
-        videoId: live ? id + 100 : null,
-        videoUri: live ? 'content://media/external/video/media/${id + 100}' : null,
-        videoSize: live ? 2000 : null,
-        videoDurationMs: live ? 1500 : null,
-        isLive: live,
-      );
+    imageId: id,
+    imageUri: 'content://media/external/images/media/$id',
+    displayName: 'IMG_$id.jpg',
+    createTime: DateTime(2026, 8, 1),
+    imageSize: 1000,
+    relativePath: 'DCIM/Camera/',
+    videoId: live ? id + 100 : null,
+    videoUri: live ? 'content://media/external/video/media/${id + 100}' : null,
+    videoSize: live ? 2000 : null,
+    videoDurationMs: live ? 1500 : null,
+    isLive: live,
+  );
 
   /// 把图片解码进全局缓存，保证 pumpWidget 后 PhotoView 同步拿到图。
   Future<void> warmCache(String path) async {
@@ -104,8 +114,11 @@ void main() {
     await completer.future.timeout(const Duration(seconds: 5));
   }
 
-  Future<void> pumpDetail(WidgetTester tester,
-      {int initialIndex = 0, Size size = const Size(1600, 1200)}) async {
+  Future<void> pumpDetail(
+    WidgetTester tester, {
+    int initialIndex = 0,
+    Size size = const Size(1600, 1200),
+  }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -182,8 +195,9 @@ void main() {
     expect(scaleOf(tester), closeTo(2.0, 0.01));
   });
 
-  testWidgets('zoomed single-finger pan within bounds does not page',
-      (tester) async {
+  testWidgets('zoomed single-finger pan within bounds does not page', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
     await doubleTap(tester);
@@ -195,32 +209,43 @@ void main() {
     expect(scaleOf(tester), greaterThan(1.5), reason: 'zoom must be kept');
   });
 
-  testWidgets('zoomed edge drag left switches to NEXT page at fit',
-      (tester) async {
+  testWidgets('zoomed edge drag left switches to NEXT page at fit', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
     await doubleTap(tester);
 
     // 先平移 800px 到图片右边界，再向左外推 900px（过半）→ 停靠到下一张。
     await slowDrag(tester, center, const Offset(-1700, 0));
-    expect(pos(tester), '2 / 3', reason: 'left edge push should go to next page');
+    expect(
+      pos(tester),
+      '2 / 3',
+      reason: 'left edge push should go to next page',
+    );
     expect(scaleOf(tester), closeTo(2.0, 0.05), reason: 'new page at fit');
   });
 
-  testWidgets('zoomed edge drag right switches to PREVIOUS page at fit',
-      (tester) async {
+  testWidgets('zoomed edge drag right switches to PREVIOUS page at fit', (
+    tester,
+  ) async {
     await pumpDetail(tester, initialIndex: 1);
     final center = tester.getCenter(find.byType(PhotoView).first);
     await doubleTap(tester);
 
     // 先平移 800px 到图片左边界，再向右外推 900px → 停靠到上一张。
     await slowDrag(tester, center, const Offset(1700, 0));
-    expect(pos(tester), '1 / 3', reason: 'right edge push should go to previous page');
+    expect(
+      pos(tester),
+      '1 / 3',
+      reason: 'right edge push should go to previous page',
+    );
     expect(scaleOf(tester), closeTo(2.0, 0.05), reason: 'new page at fit');
   });
 
-  testWidgets('zoomed small edge drag snaps back and keeps zoom',
-      (tester) async {
+  testWidgets('zoomed small edge drag snaps back and keeps zoom', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
     await doubleTap(tester);
@@ -231,8 +256,9 @@ void main() {
     expect(scaleOf(tester), greaterThan(1.5), reason: 'snap back keeps zoom');
   });
 
-  testWidgets('pinch zooms and must not page even with horizontal drift',
-      (tester) async {
+  testWidgets('pinch zooms and must not page even with horizontal drift', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
     final g1 = await tester.startGesture(center - const Offset(80, 0));
@@ -257,8 +283,9 @@ void main() {
     expect(scaleOf(tester), greaterThan(1.5), reason: 'pinch should zoom');
   });
 
-  testWidgets('pinch after a one-finger pre-move must cancel page drag',
-      (tester) async {
+  testWidgets('pinch after a one-finger pre-move must cancel page drag', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
 
@@ -281,8 +308,9 @@ void main() {
     expect(scaleOf(tester), greaterThan(1.5), reason: 'pinch should zoom');
   });
 
-  testWidgets('after two-finger pinch, remaining single finger never pages',
-      (tester) async {
+  testWidgets('after two-finger pinch, remaining single finger never pages', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
 
@@ -304,15 +332,22 @@ void main() {
     await g2.up();
     await tester.pumpAndSettle();
 
-    expect(pos(tester), '1 / 3',
-        reason: 'single finger left from a pinch session must not page');
+    expect(
+      pos(tester),
+      '1 / 3',
+      reason: 'single finger left from a pinch session must not page',
+    );
   });
 
   testWidgets('1x horizontal drag past half switches page', (tester) async {
     await pumpDetail(tester);
     final center = tester.getCenter(find.byType(PhotoView).first);
     await slowDrag(tester, center, const Offset(-900, 0));
-    expect(pos(tester), '2 / 3', reason: 'drag past half should settle on next page');
+    expect(
+      pos(tester),
+      '2 / 3',
+      reason: 'drag past half should settle on next page',
+    );
     expect(scaleOf(tester), closeTo(2.0, 0.05));
   });
 
@@ -332,8 +367,9 @@ void main() {
 
   /// 单指连续手势：不抬手，按段依次移动（覆盖“中途反向”场景）。
   Future<void> gesturePath(WidgetTester tester, List<Offset> segments) async {
-    final g = await tester
-        .startGesture(tester.getCenter(find.byType(PhotoView).first));
+    final g = await tester.startGesture(
+      tester.getCenter(find.byType(PhotoView).first),
+    );
     await tester.pump(const Duration(milliseconds: 16));
     const step = 10.0;
     for (final seg in segments) {
@@ -348,22 +384,30 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('zoomed mid-gesture reversal must not switch page',
-      (tester) async {
+  testWidgets('zoomed mid-gesture reversal must not switch page', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     await doubleTap(tester);
     expect(scaleOf(tester), greaterThan(1.5));
 
     // 不抬手：左移 500 → 反向 700（仍在图内）。反向瞬间不能触发边界外推。
     await gesturePath(tester, [const Offset(-500, 0), const Offset(700, 0)]);
-    expect(pos(tester), '1 / 3',
-        reason: 'reversal at mid-pan must not switch page');
-    expect(scaleOf(tester), greaterThan(1.5),
-        reason: 'zoom must be kept after reversal');
+    expect(
+      pos(tester),
+      '1 / 3',
+      reason: 'reversal at mid-pan must not switch page',
+    );
+    expect(
+      scaleOf(tester),
+      greaterThan(1.5),
+      reason: 'zoom must be kept after reversal',
+    );
   });
 
-  testWidgets('zoomed reversal then edge push keeps finger direction',
-      (tester) async {
+  testWidgets('zoomed reversal then edge push keeps finger direction', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     await doubleTap(tester);
 
@@ -373,8 +417,11 @@ void main() {
       const Offset(300, 0),
       const Offset(-1800, 0),
     ]);
-    expect(pos(tester), '2 / 3',
-        reason: 'edge push direction must follow finger, never reverse');
+    expect(
+      pos(tester),
+      '2 / 3',
+      reason: 'edge push direction must follow finger, never reverse',
+    );
     expect(scaleOf(tester), closeTo(2.0, 0.05));
   });
 
@@ -388,25 +435,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('zoomed fast fling from mid-image glides to edge, no page switch',
-      (tester) async {
-    await pumpDetail(tester);
-    await doubleTap(tester);
-    expect(scaleOf(tester), greaterThan(1.5));
+  testWidgets(
+    'zoomed fast fling from mid-image glides to edge, no page switch',
+    (tester) async {
+      await pumpDetail(tester);
+      await doubleTap(tester);
+      expect(scaleOf(tester), greaterThan(1.5));
 
-    // 不在边缘快速左甩：绝不切页；松手后图片应惯性滑到左边缘停住。
-    await fastFling(tester, const Offset(-400, 0));
-    expect(pos(tester), '1 / 3',
-        reason: 'fling from mid-image must not switch page');
-    expect(scaleOf(tester), greaterThan(1.5),
-        reason: 'zoom must be kept after inertia');
-    final controller = visiblePhotoView(tester).controller!;
-    expect(controller.position.dx, lessThanOrEqualTo(-700),
-        reason: 'image should glide toward left edge by inertia');
-  });
+      // 不在边缘快速左甩：绝不切页；松手后图片应惯性滑到左边缘停住。
+      await fastFling(tester, const Offset(-400, 0));
+      expect(
+        pos(tester),
+        '1 / 3',
+        reason: 'fling from mid-image must not switch page',
+      );
+      expect(
+        scaleOf(tester),
+        greaterThan(1.5),
+        reason: 'zoom must be kept after inertia',
+      );
+      final controller = visiblePhotoView(tester).controller!;
+      expect(
+        controller.position.dx,
+        lessThanOrEqualTo(-700),
+        reason: 'image should glide toward left edge by inertia',
+      );
+    },
+  );
 
-  testWidgets('zoomed fast fling from edge switches to next page',
-      (tester) async {
+  testWidgets('zoomed fast fling from edge switches to next page', (
+    tester,
+  ) async {
     await pumpDetail(tester);
     await doubleTap(tester);
     // 把图片直接放到左边缘（4x 时平移范围 800px）。
@@ -415,9 +474,15 @@ void main() {
     await tester.pump();
 
     await fastFling(tester, const Offset(-300, 0));
-    expect(pos(tester), '2 / 3',
-        reason: 'fling at left edge should switch to next page');
-    expect(scaleOf(tester), closeTo(2.0, 0.05),
-        reason: 'new page settles at fit');
+    expect(
+      pos(tester),
+      '2 / 3',
+      reason: 'fling at left edge should switch to next page',
+    );
+    expect(
+      scaleOf(tester),
+      closeTo(2.0, 0.05),
+      reason: 'new page settles at fit',
+    );
   });
 }

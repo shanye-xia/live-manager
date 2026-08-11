@@ -19,10 +19,7 @@ class BatchDeleteResult {
 }
 
 class BatchExifResult {
-  const BatchExifResult({
-    required this.success,
-    required this.failed,
-  });
+  const BatchExifResult({required this.success, required this.failed});
 
   final int success;
   final int failed;
@@ -57,6 +54,7 @@ class HomeViewModel extends ChangeNotifier {
     _allItems = value;
     _liveCache = null;
   }
+
   String? get error => _error;
   bool get selectionMode => _selectionMode;
   int get selectedCount => _selectedIds.length;
@@ -97,39 +95,84 @@ class HomeViewModel extends ChangeNotifier {
         visible.every((e) => _selectedIds.contains(e.imageId));
   }
 
-  Future<void> load() async {
-    _status = HomeStatus.loading;
+  Future<void> load({bool startup = false}) async {
+    if (_allItems.isEmpty) {
+      await _restoreCachedSnapshot();
+    }
+    final hadVisibleItems = _allItems.isNotEmpty;
+    if (!hadVisibleItems) {
+      _status = HomeStatus.loading;
+    }
     _error = null;
     notifyListeners();
 
     try {
+      if (startup && hadVisibleItems) {
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+      }
       final scanned = await repository.scan();
+      final shouldClearThumbnails = !_sameItemSnapshot(_allItems, scanned);
       _items = scanned;
-      _thumbnailFutures.clear();
+      if (shouldClearThumbnails) {
+        _thumbnailFutures.clear();
+        _thumbnailPaths.clear();
+      }
       _status = HomeStatus.ready;
     } catch (e) {
       _error = e.toString();
-      _status = HomeStatus.error;
+      if (!hadVisibleItems) {
+        _status = HomeStatus.error;
+      }
     }
     notifyListeners();
   }
 
+  Future<void> _restoreCachedSnapshot() async {
+    try {
+      final cached = await repository.cachedScanSnapshot();
+      if (cached.isEmpty) return;
+      _items = cached;
+      _status = HomeStatus.ready;
+      notifyListeners();
+    } catch (_) {
+      // 快照只是启动加速，读取失败时继续走正常扫描。
+    }
+  }
+
+  bool _sameItemSnapshot(List<PhotoItem> previous, List<PhotoItem> next) {
+    if (previous.length != next.length) return false;
+    for (var i = 0; i < previous.length; i++) {
+      final a = previous[i];
+      final b = next[i];
+      if (a.imageId != b.imageId ||
+          a.videoId != b.videoId ||
+          a.imageUri != b.imageUri ||
+          a.videoUri != b.videoUri ||
+          a.displayName != b.displayName ||
+          a.imageSize != b.imageSize ||
+          a.videoSize != b.videoSize ||
+          a.relativePath != b.relativePath ||
+          a.createTime != b.createTime ||
+          a.isLive != b.isLive) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// 返回缩略图文件路径（同一 item 只请求一次，Future 记忆化）。
   Future<String> thumbnailPathFor(PhotoItem item) {
-    return _thumbnailFutures.putIfAbsent(
-      item.imageId,
-      () async {
-        try {
-          final path = await repository.thumbnailPathFor(item);
-          _thumbnailPaths[item.imageId] = path;
-          return path;
-        } catch (_) {
-          _thumbnailFutures.remove(item.imageId);
-          _thumbnailPaths.remove(item.imageId);
-          rethrow;
-        }
-      },
-    );
+    return _thumbnailFutures.putIfAbsent(item.imageId, () async {
+      try {
+        final path = await repository.thumbnailPathFor(item);
+        _thumbnailPaths[item.imageId] = path;
+        return path;
+      } catch (_) {
+        _thumbnailFutures.remove(item.imageId);
+        _thumbnailPaths.remove(item.imageId);
+        rethrow;
+      }
+    });
   }
 
   void evictThumbnail(PhotoItem item) {
@@ -346,11 +389,7 @@ class HomeViewModel extends ChangeNotifier {
     _selectedIds.clear();
     _selectedLiveCount = 0;
     notifyListeners();
-    return BatchDeleteResult(
-      deleted: 0,
-      videoOnly: videoOnly,
-      failed: failed,
-    );
+    return BatchDeleteResult(deleted: 0, videoOnly: videoOnly, failed: failed);
   }
 
   Future<BatchExifResult> clearSelectedSensitiveExif(
@@ -418,8 +457,10 @@ class HomeViewModel extends ChangeNotifier {
   void applyRestored(Map<String, dynamic> info) {
     final mediaType = info['mediaType'] as String? ?? 'image';
     if (mediaType == 'video') {
-      final base = (info['displayName'] as String? ?? '')
-          .replaceAll(RegExp(r'\.mp4$'), '');
+      final base = (info['displayName'] as String? ?? '').replaceAll(
+        RegExp(r'\.mp4$'),
+        '',
+      );
       final rel = info['relativePath'] as String? ?? '';
       _items = [
         for (final item in _allItems)

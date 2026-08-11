@@ -33,7 +33,8 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _viewModel = HomeViewModel(repository: widget.repository)..load();
+    _viewModel = HomeViewModel(repository: widget.repository)
+      ..load(startup: true);
     _pageController = PageController();
     _pages = [
       HomeScreen(viewModel: _viewModel, liveOnly: false),
@@ -138,11 +139,8 @@ class _SnappyPageScrollPhysics extends PageScrollPhysics {
   }
 
   @override
-  SpringDescription get spring => const SpringDescription(
-        mass: 0.5,
-        stiffness: 400,
-        damping: 28.28,
-      );
+  SpringDescription get spring =>
+      const SpringDescription(mass: 0.5, stiffness: 400, damping: 28.28);
 }
 
 /// 回收站页面的懒加载门：首次进入时才创建并加载，

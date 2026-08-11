@@ -30,11 +30,13 @@ class _AlbumCollectionsScreenState extends State<AlbumCollectionsScreen>
           appBar: AppBar(title: const Text('合集')),
           body: switch (widget.viewModel.status) {
             HomeStatus.initial || HomeStatus.loading =>
-              const Center(child: CircularProgressIndicator()),
+              widget.viewModel.items.isNotEmpty
+                  ? _buildReady(context)
+                  : const _AlbumStartupPlaceholder(),
             HomeStatus.error => _AlbumErrorView(
-                message: widget.viewModel.error ?? '未知错误',
-                onRetry: widget.viewModel.load,
-              ),
+              message: widget.viewModel.error ?? '未知错误',
+              onRetry: widget.viewModel.load,
+            ),
             HomeStatus.ready => _buildReady(context),
           },
         );
@@ -72,9 +74,8 @@ class _AlbumCollectionsScreenState extends State<AlbumCollectionsScreen>
           return _AlbumCard(
             album: album,
             thumbnailFuture: widget.viewModel.thumbnailPathFor(album.cover),
-            onThumbnailError: () => widget.viewModel.evictThumbnail(
-              album.cover,
-            ),
+            onThumbnailError: () =>
+                widget.viewModel.evictThumbnail(album.cover),
             onTap: () => _openAlbum(album),
           );
         },
@@ -273,10 +274,9 @@ class _AlbumCard extends StatelessWidget {
                 album.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
             Padding(
@@ -285,9 +285,9 @@ class _AlbumCard extends StatelessWidget {
                 album.subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),
           ],
@@ -314,6 +314,53 @@ class _AlbumPlaceholder extends StatelessWidget {
   }
 }
 
+class _AlbumStartupPlaceholder extends StatelessWidget {
+  const _AlbumStartupPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return GridView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.88,
+      ),
+      itemCount: 8,
+      itemBuilder: (context, index) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.55,
+                ),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: 80,
+            height: 14,
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.55,
+              ),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AlbumErrorView extends StatelessWidget {
   const _AlbumErrorView({required this.message, required this.onRetry});
 
@@ -330,10 +377,7 @@ class _AlbumErrorView extends StatelessWidget {
           children: [
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            FilledButton(
-              onPressed: onRetry,
-              child: const Text('重试'),
-            ),
+            FilledButton(onPressed: onRetry, child: const Text('重试')),
           ],
         ),
       ),

@@ -88,6 +88,7 @@ class MainActivity : FlutterActivity() {
             "requestPermissions" -> handleRequestPermissions(result)
             "permissionStatus" -> result.success(permissionStatus())
             "scanAllPhotos" -> scanAsync(result)
+            "scanSnapshot" -> scanSnapshotAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
             "getExif" -> exifAsync(call, result)
             "shareImage" -> shareImage(call, result)
@@ -287,8 +288,18 @@ class MainActivity : FlutterActivity() {
         }
         Thread {
             val items = LivePhotoScanner.scanAll(applicationContext)
+            LivePhotoScanSnapshot.save(applicationContext, items)
             runOnUiThread {
                 result.success(items.map { it.toMap() })
+            }
+        }.start()
+    }
+
+    private fun scanSnapshotAsync(result: MethodChannel.Result) {
+        Thread {
+            val items = LivePhotoScanSnapshot.read(applicationContext)
+            runOnUiThread {
+                result.success(items)
             }
         }.start()
     }

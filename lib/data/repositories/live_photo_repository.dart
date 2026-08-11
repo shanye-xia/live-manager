@@ -17,6 +17,8 @@ abstract class LivePhotoRepository {
   /// 请求权限并扫描全部照片。
   Future<List<PhotoItem>> scan();
 
+  Future<List<PhotoItem>> cachedScanSnapshot();
+
   /// 获取（并缓存）某张照片的缩略图文件路径。
   Future<String> thumbnailPathFor(PhotoItem item);
 
@@ -77,7 +79,7 @@ abstract class LivePhotoRepository {
 /// 基于 MediaStore 原生桥接的实现。
 class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   const MediaStoreLivePhotoRepository({LivePhotoPlatformService? service})
-      : _service = service ?? const LivePhotoPlatformService();
+    : _service = service ?? const LivePhotoPlatformService();
 
   final LivePhotoPlatformService _service;
 
@@ -104,6 +106,12 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
       throw const PermissionDeniedException();
     }
     final maps = await _service.scanAllPhotos();
+    return maps.map(PhotoItem.fromJson).toList();
+  }
+
+  @override
+  Future<List<PhotoItem>> cachedScanSnapshot() async {
+    final maps = await _service.scanSnapshot();
     return maps.map(PhotoItem.fromJson).toList();
   }
 
