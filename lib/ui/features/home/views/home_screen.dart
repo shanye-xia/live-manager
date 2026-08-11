@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../domain/models/photo_item.dart';
+import '../../../core/exif_clear_options.dart';
 import '../../../core/formatters.dart';
 import '../../detail/views/detail_screen.dart';
 import '../view_models/home_view_model.dart';
@@ -218,6 +219,8 @@ class _HomeScreenState extends State<HomeScreen>
                 ? _SelectionActionBar(
                     showDeleteLive: widget.viewModel.selectedLiveCount > 0,
                     onDeleteLive: _confirmDeleteLiveParts,
+                    onShare: _shareSelected,
+                    onClearExif: _confirmClearSelectedExif,
                     onDelete: _confirmBatchDelete,
                   )
                 : null,
@@ -770,6 +773,39 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _confirmClearSelectedExif() async {
+    final count = widget.viewModel.selectedCount;
+    if (count == 0) return;
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => ExifClearDialog(
+        title: '清除敏感 EXIF？',
+        description: '将清除 $count 张照片中勾选的元数据。照片内容不会删除，但元数据修改后可能无法恢复。',
+      ),
+    );
+    if (selected == null || selected.isEmpty || !mounted) return;
+    ExifClearSelectionMemory.remember(selected);
+
+    final result = await _withProgress(
+      '正在清除敏感 EXIF…',
+      () => widget.viewModel.clearSelectedSensitiveExif(selected.toList()),
+    );
+    if (!mounted) return;
+    _showSnack(
+      result.failed > 0
+          ? '已清除 ${result.success} 张，${result.failed} 张失败'
+          : '已清除 ${result.success} 张',
+    );
+  }
+
+  Future<void> _shareSelected() async {
+    try {
+      await widget.viewModel.shareSelected();
+    } catch (_) {
+      if (mounted) _showSnack('分享失败');
+    }
+  }
+
   Future<T> _withProgress<T>(
     String message,
     Future<T> Function() action,
@@ -865,6 +901,7 @@ class _TimelineHeader extends StatelessWidget {
       ),
     );
   }
+
 }
 
 class _GridScrollRail extends StatefulWidget {
@@ -1393,11 +1430,15 @@ class _SelectionActionBar extends StatelessWidget {
   const _SelectionActionBar({
     required this.showDeleteLive,
     required this.onDeleteLive,
+    required this.onShare,
+    required this.onClearExif,
     required this.onDelete,
   });
 
   final bool showDeleteLive;
   final VoidCallback onDeleteLive;
+  final VoidCallback onShare;
+  final VoidCallback onClearExif;
   final VoidCallback onDelete;
 
   @override
@@ -1417,6 +1458,16 @@ class _SelectionActionBar extends StatelessWidget {
                   label: '删除Live部分',
                   onTap: onDeleteLive,
                 ),
+              _ActionButton(
+                icon: Icons.ios_share_rounded,
+                label: '分享',
+                onTap: onShare,
+              ),
+              _ActionButton(
+                icon: Icons.privacy_tip_outlined,
+                label: '清EXIF',
+                onTap: onClearExif,
+              ),
               _ActionButton(
                 icon: Icons.delete_outline,
                 label: '删除',

@@ -25,6 +25,14 @@ class _FakeRepository implements LivePhotoRepository {
   @override
   Future<Map<String, dynamic>> exifFor(PhotoItem item) async => const {};
   @override
+  Future<void> share(PhotoItem item) async {}
+  @override
+  Future<void> shareAll(List<PhotoItem> items) async {}
+  @override
+  Future<bool> updateExif(PhotoItem item, Map<String, String> values) async => true;
+  @override
+  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups) async => true;
+  @override
   Future<Map<String, dynamic>> moveToTrash(PhotoItem item, {required bool deleteVideo}) async => const {'status': 'ok'};
   @override
   Future<bool> hasAllFilesAccess() async => true;

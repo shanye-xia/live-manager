@@ -63,6 +63,50 @@ class LivePhotoPlatformService {
     return result ?? const {};
   }
 
+  /// 调用系统分享面板分享图片。
+  Future<void> shareImage(String imageUri) async {
+    await _channel.invokeMethod<void>('shareImage', {
+      'imageUri': imageUri,
+    });
+  }
+
+  /// 调用系统分享面板分享多张图片。
+  Future<void> shareImages(List<String> imageUris) async {
+    await _channel.invokeMethod<void>('shareImages', {
+      'imageUris': imageUris,
+    });
+  }
+
+  /// 更新 EXIF 字段。传空字符串会清空对应字段。
+  Future<bool> updateExif(
+    String imageUri,
+    Map<String, String> values,
+  ) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'updateExif',
+      {
+        'imageUri': imageUri,
+        'values': values,
+      },
+    );
+    return result?['ok'] == true;
+  }
+
+  /// 清除 GPS、设备、软件、拍摄时间等敏感 EXIF。
+  Future<bool> clearSensitiveExif(
+    String imageUri,
+    List<String> groups,
+  ) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'clearSensitiveExif',
+      {
+        'imageUri': imageUri,
+        'groups': groups,
+      },
+    );
+    return result?['ok'] == true;
+  }
+
   /// 把文件移入应用回收站。返回 {entry, needsConsent}。
   Future<Map<String, dynamic>> moveToTrash({
     required String uri,

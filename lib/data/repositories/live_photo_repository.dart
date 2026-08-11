@@ -29,6 +29,18 @@ abstract class LivePhotoRepository {
   /// 读取 JPG 的 EXIF 信息。
   Future<Map<String, dynamic>> exifFor(PhotoItem item);
 
+  /// 调用系统分享面板分享图片。
+  Future<void> share(PhotoItem item);
+
+  /// 调用系统分享面板分享多张图片。
+  Future<void> shareAll(List<PhotoItem> items);
+
+  /// 更新 EXIF 字段。
+  Future<bool> updateExif(PhotoItem item, Map<String, String> values);
+
+  /// 清除 GPS、设备、软件、拍摄时间等敏感 EXIF。
+  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups);
+
   /// 把动态视频（或非 Live 照片）移入应用回收站。
   /// 返回 {status, entry?}；status 为 ok / need_permission / failed。
   Future<Map<String, dynamic>> moveToTrash(
@@ -113,6 +125,26 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   @override
   Future<Map<String, dynamic>> exifFor(PhotoItem item) {
     return _service.getExif(item.imageUri);
+  }
+
+  @override
+  Future<void> share(PhotoItem item) {
+    return _service.shareImage(item.imageUri);
+  }
+
+  @override
+  Future<void> shareAll(List<PhotoItem> items) {
+    return _service.shareImages(items.map((item) => item.imageUri).toList());
+  }
+
+  @override
+  Future<bool> updateExif(PhotoItem item, Map<String, String> values) {
+    return _service.updateExif(item.imageUri, values);
+  }
+
+  @override
+  Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups) {
+    return _service.clearSensitiveExif(item.imageUri, groups);
   }
 
   @override

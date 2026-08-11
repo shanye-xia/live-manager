@@ -148,6 +148,49 @@ class DetailViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> share() => repository.share(item);
+
+  Future<bool> updateExif(Map<String, String> values) async {
+    if (_busy) return false;
+    _busy = true;
+    try {
+      final ok = await repository.updateExif(item, values);
+      if (ok) {
+        try {
+          _exif = await repository.exifFor(item);
+          notifyListeners();
+        } catch (_) {}
+      }
+      return ok;
+    } catch (_) {
+      return false;
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<bool> clearSensitiveExif(List<String> groups) async {
+    if (_busy) return false;
+    _busy = true;
+    try {
+      final ok = await repository.clearSensitiveExif(item, groups);
+      if (ok) {
+        try {
+          _exif = await repository.exifFor(item);
+          notifyListeners();
+        } catch (_) {
+          _exif = const {};
+          notifyListeners();
+        }
+      }
+      return ok;
+    } catch (_) {
+      return false;
+    } finally {
+      _busy = false;
+    }
+  }
+
   /// 把动态视频（或非 Live 照片）移入应用回收站。
   Future<DeleteOutcome> startDelete({bool videoOnly = true}) async {
     if (_busy) return DeleteOutcome.failed;

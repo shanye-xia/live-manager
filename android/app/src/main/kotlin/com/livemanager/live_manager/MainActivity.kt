@@ -89,6 +89,10 @@ class MainActivity : FlutterActivity() {
             "scanAllPhotos" -> scanAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
             "getExif" -> exifAsync(call, result)
+            "shareImage" -> shareImage(call, result)
+            "shareImages" -> shareImages(call, result)
+            "updateExif" -> updateExifAsync(call, result)
+            "clearSensitiveExif" -> clearSensitiveExifAsync(call, result)
             "moveToTrash" -> moveToTrashAsync(call, result)
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
             "openAllFilesAccessSettings" -> openAllFilesAccessSettings(result)
@@ -192,6 +196,78 @@ class MainActivity : FlutterActivity() {
                 runOnUiThread { result.success(exif) }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("exif_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun shareImage(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        try {
+            val uri = Uri.parse(imageUri)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/*"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "分享照片"))
+            result.success(true)
+        } catch (e: Throwable) {
+            result.error("share_failed", e.message, null)
+        }
+    }
+
+    private fun shareImages(call: MethodCall, result: MethodChannel.Result) {
+        val imageUris = call.argument<List<String>>("imageUris")
+            ?: return result.error("bad_args", "imageUris 缺失", null)
+        if (imageUris.isEmpty()) {
+            result.success(true)
+            return
+        }
+        try {
+            val uris = ArrayList<Uri>()
+            imageUris.forEach { uris.add(Uri.parse(it)) }
+            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "image/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "分享照片"))
+            result.success(true)
+        } catch (e: Throwable) {
+            result.error("share_failed", e.message, null)
+        }
+    }
+
+    private fun updateExifAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        val raw = call.argument<Map<String, Any?>>("values") ?: emptyMap()
+        val values = raw.mapValues { it.value?.toString().orEmpty() }
+        Thread {
+            try {
+                val ok = LivePhotoExif.update(applicationContext, imageUri, values)
+                runOnUiThread { result.success(mapOf("ok" to ok)) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("exif_write_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun clearSensitiveExifAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        val groups = call.argument<List<String>>("groups") ?: emptyList()
+        Thread {
+            try {
+                val ok = LivePhotoExif.clearSensitive(
+                    applicationContext,
+                    imageUri,
+                    groups
+                )
+                runOnUiThread { result.success(mapOf("ok" to ok)) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("exif_clear_failed", e.message, null) }
             }
         }.start()
     }

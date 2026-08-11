@@ -9,6 +9,7 @@ import 'package:photo_view/photo_view.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
 import '../../../../domain/models/photo_item.dart';
+import '../../../core/exif_clear_options.dart';
 import '../../../core/formatters.dart';
 import '../view_models/detail_view_model.dart';
 
@@ -862,17 +863,44 @@ class _PhotoPageState extends State<_PhotoPage>
             ),
           ),
         ),
-        if (item.isLive)
+        if (widget.uiVisible)
           Positioned(
             bottom: 18,
             left: 0,
             right: 0,
-            child: Center(
-              child: _GlassPanel(
-                child: const Text(
-                  '长按图片播放动态效果',
-                  style: TextStyle(color: Colors.white70, fontSize: 11),
-                ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _GlassPanel(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _BottomActionButton(
+                          icon: Icons.ios_share_rounded,
+                          label: '分享',
+                          onTap: _shareImage,
+                        ),
+                        const SizedBox(width: 16),
+                        _BottomActionButton(
+                          icon: Icons.edit_note_rounded,
+                          label: '编辑',
+                          onTap: _showEditSheet,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (item.isLive) ...[
+                    const SizedBox(height: 8),
+                    _GlassPanel(
+                      child: const Text(
+                        '长按图片播放动态效果',
+                        style: TextStyle(color: Colors.white70, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
@@ -1061,6 +1089,134 @@ class _PhotoPageState extends State<_PhotoPage>
     );
   }
 
+  Future<T?> _withProgress<T>(String message, Future<T> Function() task) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      return await task();
+    } finally {
+      if (navigator.canPop()) navigator.pop();
+    }
+  }
+
+  Future<void> _shareImage() async {
+    try {
+      await _viewModel.share();
+    } catch (_) {
+      _showSnack('分享失败');
+    }
+  }
+
+  Future<void> _showEditSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF161616),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _EditActionTile(
+              icon: Icons.edit_note_rounded,
+              title: '编辑 EXIF',
+              subtitle: '修改品牌、型号、时间、软件、描述',
+              onTap: () {
+                Navigator.of(context).pop();
+                _showExifEditor();
+              },
+            ),
+            _EditActionTile(
+              icon: Icons.privacy_tip_outlined,
+              title: '清除敏感 EXIF',
+              subtitle: 'GPS、设备、软件、拍摄时间等',
+              destructive: true,
+              onTap: () {
+                Navigator.of(context).pop();
+                _confirmClearSensitiveExif();
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showExifEditor() async {
+    final exif = _viewModel.exif ?? const <String, dynamic>{};
+    final values = await Navigator.of(context).push<Map<String, String>>(
+      MaterialPageRoute<Map<String, String>>(
+        fullscreenDialog: true,
+        builder: (_) => _ExifEditorPage(exif: exif),
+      ),
+    );
+    if (values == null || !mounted) return;
+    final saved = await _withProgress(
+      '正在写入 EXIF…',
+      () => _viewModel.updateExif(values),
+    );
+    if (!mounted) return;
+    _showSnack(saved == true ? 'EXIF 已保存' : 'EXIF 保存失败');
+  }
+
+  Future<void> _confirmClearSensitiveExif() async {
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => const ExifClearDialog(
+        title: '清除敏感 EXIF？',
+        description: '将清除这张照片中勾选的元数据。照片内容不会删除，但元数据修改后可能无法恢复。',
+      ),
+    );
+    if (selected == null || selected.isEmpty || !mounted) return;
+    ExifClearSelectionMemory.remember(selected);
+    final ok = await _withProgress(
+      '正在清除敏感 EXIF…',
+      () => _viewModel.clearSensitiveExif(selected.toList()),
+    );
+    if (!mounted) return;
+    _showSnack(ok == true ? '敏感 EXIF 已清除' : '清除失败');
+  }
+
   Future<void> _showInfoSheet() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -1069,6 +1225,228 @@ class _PhotoPageState extends State<_PhotoPage>
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => _InfoSheet(viewModel: _viewModel, item: widget.item),
+    );
+  }
+}
+
+class _ExifEditorPage extends StatefulWidget {
+  const _ExifEditorPage({required this.exif});
+
+  final Map<String, dynamic> exif;
+
+  @override
+  State<_ExifEditorPage> createState() => _ExifEditorPageState();
+}
+
+class _ExifEditorPageState extends State<_ExifEditorPage> {
+  late final TextEditingController _make;
+  late final TextEditingController _model;
+  late final TextEditingController _datetime;
+  late final TextEditingController _software;
+  late final TextEditingController _description;
+  late final TextEditingController _latitude;
+  late final TextEditingController _longitude;
+  late final TextEditingController _focalLength;
+  late final TextEditingController _iso;
+  late final TextEditingController _exposureTime;
+  late final TextEditingController _aperture;
+  late final TextEditingController _exposureBias;
+  late final TextEditingController _flash;
+  bool _showAdvanced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final exif = widget.exif;
+    _make = TextEditingController(text: '${exif['make'] ?? ''}');
+    _model = TextEditingController(text: '${exif['model'] ?? ''}');
+    _datetime = TextEditingController(
+      text: '${exif['datetimeOriginal'] ?? exif['datetime'] ?? ''}',
+    );
+    _software = TextEditingController(text: '${exif['software'] ?? ''}');
+    _description =
+        TextEditingController(text: '${exif['imageDescription'] ?? ''}');
+    _latitude = TextEditingController(text: '${exif['latitude'] ?? ''}');
+    _longitude = TextEditingController(text: '${exif['longitude'] ?? ''}');
+    _focalLength = TextEditingController(text: '${exif['focalLength'] ?? ''}');
+    _iso = TextEditingController(text: '${exif['iso'] ?? ''}');
+    _exposureTime =
+        TextEditingController(text: '${exif['exposureTime'] ?? ''}');
+    _aperture = TextEditingController(text: '${exif['aperture'] ?? ''}');
+    _exposureBias =
+        TextEditingController(text: '${exif['exposureBias'] ?? ''}');
+    _flash = TextEditingController(text: '${exif['flash'] ?? ''}');
+  }
+
+  @override
+  void dispose() {
+    _make.dispose();
+    _model.dispose();
+    _datetime.dispose();
+    _software.dispose();
+    _description.dispose();
+    _latitude.dispose();
+    _longitude.dispose();
+    _focalLength.dispose();
+    _iso.dispose();
+    _exposureTime.dispose();
+    _aperture.dispose();
+    _exposureBias.dispose();
+    _flash.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    Navigator.of(context).pop(<String, String>{
+      'make': _make.text.trim(),
+      'model': _model.text.trim(),
+      'datetime': _datetime.text.trim(),
+      'software': _software.text.trim(),
+      'imageDescription': _description.text.trim(),
+      'latitude': _latitude.text.trim(),
+      'longitude': _longitude.text.trim(),
+      if (_showAdvanced) ...{
+        'focalLength': _focalLength.text.trim(),
+        'iso': _iso.text.trim(),
+        'exposureTime': _exposureTime.text.trim(),
+        'aperture': _aperture.text.trim(),
+        'exposureBias': _exposureBias.text.trim(),
+        'flash': _flash.text.trim(),
+      },
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        title: const Text('编辑 EXIF'),
+        actions: [
+          TextButton(
+            onPressed: _save,
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+      body: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          _ExifTextField(controller: _make, label: '相机品牌'),
+          _ExifTextField(controller: _model, label: '相机型号'),
+          _ExifTextField(
+            controller: _datetime,
+            label: '拍摄时间',
+            hint: 'yyyy:MM:dd HH:mm:ss',
+          ),
+          _ExifTextField(controller: _software, label: '软件'),
+          _ExifTextField(controller: _description, label: '描述'),
+          _ExifTextField(controller: _latitude, label: 'GPS 纬度'),
+          _ExifTextField(controller: _longitude, label: 'GPS 经度'),
+          const SizedBox(height: 4),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('高级'),
+            subtitle: const Text('镜头、曝光参数、闪光灯'),
+            trailing: Icon(
+              _showAdvanced
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+            ),
+            onTap: () => setState(() => _showAdvanced = !_showAdvanced),
+          ),
+          if (_showAdvanced) ...[
+            _ExifTextField(controller: _focalLength, label: '焦距'),
+            _ExifTextField(controller: _iso, label: 'ISO'),
+            _ExifTextField(controller: _exposureTime, label: '快门时间'),
+            _ExifTextField(controller: _aperture, label: '光圈'),
+            _ExifTextField(controller: _exposureBias, label: '曝光补偿'),
+            _ExifTextField(controller: _flash, label: '闪光灯'),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EditActionTile extends StatelessWidget {
+  const _EditActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive ? Colors.redAccent : Colors.white;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExifTextField extends StatelessWidget {
+  const _ExifTextField({
+    required this.controller,
+    required this.label,
+    this.hint,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String? hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
     );
   }
 }
@@ -1165,6 +1543,44 @@ class _GlassPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: child,
+    );
+  }
+}
+
+class _BottomActionButton extends StatelessWidget {
+  const _BottomActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

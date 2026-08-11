@@ -18,6 +18,16 @@ class BatchDeleteResult {
   final int failed;
 }
 
+class BatchExifResult {
+  const BatchExifResult({
+    required this.success,
+    required this.failed,
+  });
+
+  final int success;
+  final int failed;
+}
+
 /// 首页 ViewModel：管理扫描状态、照片列表与缩略图缓存。
 class HomeViewModel extends ChangeNotifier {
   HomeViewModel({required this.repository});
@@ -341,6 +351,40 @@ class HomeViewModel extends ChangeNotifier {
       videoOnly: videoOnly,
       failed: failed,
     );
+  }
+
+  Future<BatchExifResult> clearSelectedSensitiveExif(
+    List<String> groups,
+  ) async {
+    final targets = _allItems
+        .where((e) => _selectedIds.contains(e.imageId))
+        .toList();
+    var success = 0;
+    var failed = 0;
+    for (final item in targets) {
+      try {
+        if (await repository.clearSensitiveExif(item, groups)) {
+          success++;
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    _selectionMode = false;
+    _selectedIds.clear();
+    _selectedLiveCount = 0;
+    notifyListeners();
+    return BatchExifResult(success: success, failed: failed);
+  }
+
+  Future<void> shareSelected() async {
+    final targets = _allItems
+        .where((e) => _selectedIds.contains(e.imageId))
+        .toList();
+    if (targets.isEmpty) return;
+    await repository.shareAll(targets);
   }
 
   /// 原地应用删除结果（不重新扫描）：动态视频被删则取消 LIVE 标记，
