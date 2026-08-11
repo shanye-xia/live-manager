@@ -798,12 +798,16 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     });
   }
 
-  void _jumpTo(Offset localPosition) {
+  void _dragBy(double deltaY) {
     final controller = widget.controller;
     if (!controller.hasClients || _maxExtent <= 0) return;
-    final fraction =
-        (localPosition.dy / widget.trackHeight).clamp(0.0, 1.0);
-    controller.jumpTo(fraction * _maxExtent);
+    final travel = widget.trackHeight - _thumbHeight;
+    if (travel <= 0) return;
+    final delta = deltaY / travel * _maxExtent;
+    final target = (controller.position.pixels + delta)
+        .clamp(0.0, _maxExtent)
+        .toDouble();
+    controller.jumpTo(target);
   }
 
   @override
@@ -811,34 +815,31 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     _update();
     if (_maxExtent <= 0) return const SizedBox.shrink();
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragUpdate: (details) => _jumpTo(details.localPosition),
-      child: SizedBox(
-        width: _GridScrollRail.railWidth,
-        child: Stack(
-          children: [
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 120),
-              top: _thumbTop,
-              left: 0,
-              right: 0,
-              height: _thumbHeight,
-              child: Center(
-                child: Container(
-                  width: 12,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
+    return SizedBox(
+      width: _GridScrollRail.railWidth,
+      child: Stack(
+        children: [
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 120),
+            top: _thumbTop,
+            right: 18,
+            width: 12,
+            height: _thumbHeight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: (details) => _dragBy(details.delta.dy),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(6),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
