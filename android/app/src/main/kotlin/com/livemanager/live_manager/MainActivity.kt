@@ -56,9 +56,12 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS) {
             val granted = requiredPermissions()
                 .all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
@@ -66,6 +69,7 @@ class MainActivity : FlutterActivity() {
                 mapOf("granted" to granted, "pending" to false)
             )
             pendingPermissionResult = null
+            eventSink?.success(mapOf("type" to "permission", "granted" to granted))
         }
     }
 
