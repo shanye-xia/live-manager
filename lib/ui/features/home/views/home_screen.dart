@@ -34,9 +34,14 @@ class _HomeScreenState extends State<HomeScreen>
   bool _showTopButton = false;
   double _lastScrollPixels = 0;
   Timer? _topButtonTimer;
+  Timer? _scrollDateTimer;
+  Timer? _thumbnailResumeTimer;
   double _summaryHeight = 56.0;
   Timer? _summaryTimer;
   bool _animatingToTop = false;
+  bool _showScrollDate = false;
+  bool _deferThumbnailLoading = false;
+  DateTime? _scrollDate;
 
   // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
   double? _sweepRow0Top;
@@ -133,6 +138,8 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     _stopSweepTimer();
     _topButtonTimer?.cancel();
+    _scrollDateTimer?.cancel();
+    _thumbnailResumeTimer?.cancel();
     _summaryTimer?.cancel();
     _scrollController.removeListener(_onGridScroll);
     _scrollController.dispose();
@@ -144,6 +151,9 @@ class _HomeScreenState extends State<HomeScreen>
     final offset = _scrollController.offset;
     final delta = offset - _lastScrollPixels;
     _lastScrollPixels = offset;
+    if (delta.abs() > 0.5 && _visibleItems.isNotEmpty) {
+      _showScrollDateTemporarily(_currentScrollItem()?.createTime);
+    }
     if (_animatingToTop) return;
     if (widget.viewModel.selectionMode || offset < 400) {
       _setTopButtonVisible(false);
@@ -162,6 +172,41 @@ class _HomeScreenState extends State<HomeScreen>
   void _setTopButtonVisible(bool value) {
     if (_showTopButton == value) return;
     setState(() => _showTopButton = value);
+  }
+
+  void _showScrollDateTemporarily(DateTime? date) {
+    _scrollDateTimer?.cancel();
+    final normalized = date == null
+        ? null
+        : DateTime(date.year, date.month, date.day);
+    final changed =
+        _scrollDate?.year != normalized?.year ||
+        _scrollDate?.month != normalized?.month ||
+        _scrollDate?.day != normalized?.day;
+    if (!_showScrollDate || changed) {
+      setState(() {
+        _showScrollDate = true;
+        _scrollDate = normalized;
+      });
+    }
+    _scrollDateTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      setState(() => _showScrollDate = false);
+    });
+  }
+
+  void _setScrollbarDragging(bool dragging) {
+    _thumbnailResumeTimer?.cancel();
+    if (dragging) {
+      if (!_deferThumbnailLoading) {
+        setState(() => _deferThumbnailLoading = true);
+      }
+      return;
+    }
+    _thumbnailResumeTimer = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted || !_deferThumbnailLoading) return;
+      setState(() => _deferThumbnailLoading = false);
+    });
   }
 
   void _scrollToTop() {
@@ -323,8 +368,9 @@ class _HomeScreenState extends State<HomeScreen>
                               return _PhotoTile(
                                 index: globalIndex,
                                 item: item,
-                                thumbnailFuture: widget.viewModel
-                                    .thumbnailPathFor(item),
+                                thumbnailFuture: _deferThumbnailLoading
+                                    ? null
+                                    : widget.viewModel.thumbnailPathFor(item),
                                 onThumbnailError: () =>
                                     widget.viewModel.evictThumbnail(item),
                                 selectionMode: widget.viewModel.selectionMode,
@@ -367,11 +413,20 @@ class _HomeScreenState extends State<HomeScreen>
                           controller: _scrollController,
                           trackHeight: trackHeight,
                           currentLabel: _scrollTimeLabel,
+                          onDragStateChanged: _setScrollbarDragging,
                         ),
                       ),
                     ),
                   );
                 },
+              ),
+            ),
+            Positioned(
+              top: 12,
+              left: 12,
+              child: _TopScrollDateIndicator(
+                visible: _showScrollDate,
+                date: _scrollDate,
               ),
             ),
             Positioned(
@@ -412,6 +467,18 @@ class _HomeScreenState extends State<HomeScreen>
       _visibleItems.length - 1,
     );
     return formatDateTime(_visibleItems[index].createTime);
+  }
+
+  PhotoItem? _currentScrollItem() {
+    if (!_scrollController.hasClients || _visibleItems.isEmpty) return null;
+    final position = _scrollController.position;
+    final max = position.maxScrollExtent;
+    final fraction = max <= 0 ? 0.0 : (position.pixels / max).clamp(0.0, 1.0);
+    final index = (fraction * (_visibleItems.length - 1)).round().clamp(
+      0,
+      _visibleItems.length - 1,
+    );
+    return _visibleItems[index];
   }
 
   Future<void> _openDetail(PhotoItem item) async {
@@ -952,11 +1019,78 @@ class _TimelineHeader extends StatelessWidget {
   }
 }
 
+class _TopScrollDateIndicator extends StatelessWidget {
+  const _TopScrollDateIndicator({required this.visible, required this.date});
+
+  final bool visible;
+  final DateTime? date;
+
+  @override
+  Widget build(BuildContext context) {
+    final date = this.date;
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: visible && date != null ? 1 : 0,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surface.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.45),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.14),
+                blurRadius: 14,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 7, 11, 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  date?.day.toString().padLeft(2, '0') ?? '--',
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontSize: 28,
+                    height: 1,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.8,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  date == null ? '' : '${date.month}月\n${date.year}',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 11,
+                    height: 1.08,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GridScrollRail extends StatefulWidget {
   const _GridScrollRail({
     required this.controller,
     required this.trackHeight,
     required this.currentLabel,
+    required this.onDragStateChanged,
   });
 
   /// 轨道触控区宽度。
@@ -965,6 +1099,7 @@ class _GridScrollRail extends StatefulWidget {
   final ScrollController controller;
   final double trackHeight;
   final String? Function() currentLabel;
+  final ValueChanged<bool> onDragStateChanged;
 
   @override
   State<_GridScrollRail> createState() => _GridScrollRailState();
@@ -979,17 +1114,34 @@ class _GridScrollRailState extends State<_GridScrollRail> {
   double _thumbHeight = _thumbMinHeight;
   double _thumbTop = 0;
   bool _dragging = false;
+  bool _dragFrameScheduled = false;
+  double? _pendingDragTarget;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_update);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _update());
   }
 
   @override
   void dispose() {
+    if (_dragging) {
+      widget.onDragStateChanged(false);
+    }
     widget.controller.removeListener(_update);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _GridScrollRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.trackHeight != widget.trackHeight ||
+        oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_update);
+      widget.controller.addListener(_update);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _update());
+    }
   }
 
   void _update() {
@@ -1004,6 +1156,11 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     final thumbTop = max <= 0
         ? 0.0
         : (position.pixels / max) * (height - thumbHeight);
+    if ((_maxExtent - max).abs() < 0.5 &&
+        (_thumbHeight - thumbHeight).abs() < 0.5 &&
+        (_thumbTop - thumbTop).abs() < 0.5) {
+      return;
+    }
     setState(() {
       _maxExtent = max;
       _thumbHeight = thumbHeight;
@@ -1017,20 +1174,29 @@ class _GridScrollRailState extends State<_GridScrollRail> {
     final travel = widget.trackHeight - _thumbHeight;
     if (travel <= 0) return;
     final delta = deltaY / travel * _maxExtent;
-    final target = (controller.position.pixels + delta)
-        .clamp(0.0, _maxExtent)
-        .toDouble();
-    controller.jumpTo(target);
+    final base = _pendingDragTarget ?? controller.position.pixels;
+    _pendingDragTarget = (base + delta).clamp(0.0, _maxExtent).toDouble();
+    if (_dragFrameScheduled) return;
+    _dragFrameScheduled = true;
+    WidgetsBinding.instance.scheduleFrameCallback((_) {
+      _dragFrameScheduled = false;
+      final target = _pendingDragTarget;
+      _pendingDragTarget = null;
+      if (!mounted || target == null || !controller.hasClients) return;
+      controller.jumpTo(
+        target.clamp(0.0, controller.position.maxScrollExtent).toDouble(),
+      );
+    });
   }
 
   void _setDragging(bool value) {
     if (_dragging == value) return;
+    widget.onDragStateChanged(value);
     setState(() => _dragging = value);
   }
 
   @override
   Widget build(BuildContext context) {
-    _update();
     if (_maxExtent <= 0) return const SizedBox.shrink();
 
     final label = widget.currentLabel();
@@ -1280,7 +1446,7 @@ class _PhotoTile extends StatefulWidget {
 
   final int index;
   final PhotoItem item;
-  final Future<String> thumbnailFuture;
+  final Future<String>? thumbnailFuture;
   final VoidCallback onThumbnailError;
   final bool selectionMode;
   final bool selected;
@@ -1299,7 +1465,8 @@ class _PhotoTile extends StatefulWidget {
 }
 
 class _PhotoTileState extends State<_PhotoTile> {
-  late Future<String> _thumbnailFuture;
+  Future<String>? _thumbnailFuture;
+  String? _lastThumbnailPath;
   bool _thumbnailRetryScheduled = false;
 
   @override
@@ -1311,7 +1478,8 @@ class _PhotoTileState extends State<_PhotoTile> {
   @override
   void didUpdateWidget(_PhotoTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.thumbnailFuture != widget.thumbnailFuture) {
+    if (widget.thumbnailFuture != null &&
+        oldWidget.thumbnailFuture != widget.thumbnailFuture) {
       _thumbnailFuture = widget.thumbnailFuture;
     }
   }
@@ -1356,27 +1524,7 @@ class _PhotoTileState extends State<_PhotoTile> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          FutureBuilder<String>(
-            future: _thumbnailFuture,
-            builder: (context, snapshot) {
-              if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-                return Image.file(
-                  File(snapshot.data!),
-                  fit: BoxFit.cover,
-                  cacheWidth: 512,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, _, _) {
-                    _scheduleThumbnailRetry();
-                    return const _TilePlaceholder();
-                  },
-                );
-              }
-              if (snapshot.hasError) {
-                _scheduleThumbnailRetry();
-              }
-              return const _TilePlaceholder();
-            },
-          ),
+          _buildThumbnail(),
           if (widget.item.isLive)
             const Positioned(top: 6, left: 6, child: _LiveBadge()),
           if (widget.item.isLive)
@@ -1401,6 +1549,57 @@ class _PhotoTileState extends State<_PhotoTile> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildThumbnail() {
+    if (widget.thumbnailFuture == null) {
+      final path = _lastThumbnailPath;
+      if (path == null || path.isEmpty) {
+        return const _TilePlaceholder();
+      }
+      return _ThumbnailImage(path: path, onError: _scheduleThumbnailRetry);
+    }
+    final future = _thumbnailFuture;
+    if (future == null) {
+      return const _TilePlaceholder();
+    }
+    return FutureBuilder<String>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+          _lastThumbnailPath = snapshot.data;
+          return _ThumbnailImage(
+            path: snapshot.data!,
+            onError: _scheduleThumbnailRetry,
+          );
+        }
+        if (snapshot.hasError) {
+          _scheduleThumbnailRetry();
+        }
+        return const _TilePlaceholder();
+      },
+    );
+  }
+}
+
+class _ThumbnailImage extends StatelessWidget {
+  const _ThumbnailImage({required this.path, required this.onError});
+
+  final String path;
+  final VoidCallback onError;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      cacheWidth: 512,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) {
+        onError();
+        return const _TilePlaceholder();
+      },
     );
   }
 }
