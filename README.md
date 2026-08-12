@@ -313,7 +313,7 @@ flutter build apk --debug
 
 - [project.md](project.md)：产品定位与 v0.1 范围
 - [ROADMAP.md](ROADMAP.md)：版本路线
-- [todo](todo)：二期 Live Photo 兼容方案
+- [docs/v0.2-motion-photo-plan.md](docs/v0.2-motion-photo-plan.md)：二期 Live Photo / Motion Photo 兼容方案
 - [CHANGELOG.md](CHANGELOG.md)：版本变更记录
 
 ## License

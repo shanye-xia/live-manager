@@ -50,3 +50,7 @@ app.*.map.json
 skills-lock.json
 .codex/
 .codex-backup/
+
+# Local/private photo samples must never be committed.
+/testdata/local-private/*
+!/testdata/local-private/README.md
