@@ -13,7 +13,7 @@
         tools:ignore="ScopedStorage" />
 
     <application
-        android:label="Live Manager"
+        android:label="LiveKit"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
