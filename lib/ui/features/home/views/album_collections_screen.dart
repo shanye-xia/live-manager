@@ -86,13 +86,8 @@ class _AlbumCollectionsScreenState extends State<AlbumCollectionsScreen>
   void _openAlbum(_AlbumGroup album) {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => HomeScreen(
-          viewModel: widget.viewModel,
-          title: album.title,
-          itemFilter: (viewModel) => viewModel.items
-              .where((item) => album.relativePaths.contains(item.relativePath))
-              .toList(),
-        ),
+        builder: (_) =>
+            _AlbumDetailShell(viewModel: widget.viewModel, album: album),
       ),
     );
   }
@@ -115,6 +110,105 @@ class _AlbumCollectionsScreenState extends State<AlbumCollectionsScreen>
       return b.latest.compareTo(a.latest);
     });
     return albums;
+  }
+}
+
+class _AlbumDetailShell extends StatefulWidget {
+  const _AlbumDetailShell({required this.viewModel, required this.album});
+
+  final HomeViewModel viewModel;
+  final _AlbumGroup album;
+
+  @override
+  State<_AlbumDetailShell> createState() => _AlbumDetailShellState();
+}
+
+class _AlbumDetailShellState extends State<_AlbumDetailShell> {
+  late final PageController _pageController;
+  final ValueNotifier<int> _indexNotifier = ValueNotifier<int>(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _indexNotifier.dispose();
+    super.dispose();
+  }
+
+  List<PhotoItem> _albumItems(HomeViewModel viewModel) {
+    return viewModel.items
+        .where((item) => widget.album.relativePaths.contains(item.relativePath))
+        .toList();
+  }
+
+  void _selectTab(int index) {
+    if (index == _indexNotifier.value) return;
+    _indexNotifier.value = index;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _onPageChanged(int index) {
+    if (index != _indexNotifier.value) {
+      _indexNotifier.value = index;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.viewModel,
+      builder: (context, _) {
+        return Scaffold(
+          body: PageView(
+            controller: _pageController,
+            onPageChanged: _onPageChanged,
+            children: [
+              HomeScreen(
+                viewModel: widget.viewModel,
+                title: widget.album.title,
+                itemFilter: _albumItems,
+              ),
+              HomeScreen(
+                viewModel: widget.viewModel,
+                liveOnly: true,
+                title: '${widget.album.title} · Live',
+                itemFilter: _albumItems,
+              ),
+            ],
+          ),
+          bottomNavigationBar: widget.viewModel.selectionMode
+              ? null
+              : ValueListenableBuilder<int>(
+                  valueListenable: _indexNotifier,
+                  builder: (context, index, _) => NavigationBar(
+                    selectedIndex: index,
+                    onDestinationSelected: _selectTab,
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.photo_library_outlined),
+                        selectedIcon: Icon(Icons.photo_library),
+                        label: '全部',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.motion_photos_on_outlined),
+                        selectedIcon: Icon(Icons.motion_photos_on),
+                        label: 'Live',
+                      ),
+                    ],
+                  ),
+                ),
+        );
+      },
+    );
   }
 }
 

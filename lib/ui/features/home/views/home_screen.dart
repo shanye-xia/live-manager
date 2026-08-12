@@ -66,7 +66,12 @@ class _HomeScreenState extends State<HomeScreen>
   /// Visible items for this tab (all photos, or cached live-only view).
   List<PhotoItem> get _visibleItems {
     final filter = widget.itemFilter;
-    if (filter != null) return filter(widget.viewModel);
+    if (filter != null) {
+      final filtered = filter(widget.viewModel);
+      return widget.liveOnly
+          ? filtered.where((item) => item.isLive).toList()
+          : filtered;
+    }
     return widget.liveOnly
         ? widget.viewModel.liveItems
         : widget.viewModel.items;
@@ -312,6 +317,7 @@ class _HomeScreenState extends State<HomeScreen>
     // 信息栏收起时的高度：轨道起点与图片区顶部对齐。
     final summaryHeight = _summaryHeight;
     final groups = _timelineGroups;
+    final summary = _VisibleSummary.from(_visibleItems);
     return RefreshIndicator(
       onRefresh: widget.viewModel.load,
       child: SizedBox.expand(
@@ -336,11 +342,11 @@ class _HomeScreenState extends State<HomeScreen>
                           key: _summaryKey,
                           onExpandedChanged: _onSummaryExpandedChanged,
                           liveOnly: widget.liveOnly,
-                          count: _visibleItems.length,
-                          liveCount: widget.viewModel.liveCount,
-                          totalBytes: widget.viewModel.totalBytes,
-                          liveImageBytes: widget.viewModel.liveImageTotalBytes,
-                          liveVideoBytes: widget.viewModel.liveVideoTotalBytes,
+                          count: summary.count,
+                          liveCount: summary.liveCount,
+                          totalBytes: summary.totalBytes,
+                          liveImageBytes: summary.liveImageBytes,
+                          liveVideoBytes: summary.liveVideoBytes,
                         ),
                       ),
                       for (final group in groups) ...[
@@ -1017,6 +1023,43 @@ class _TimelineHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+class _VisibleSummary {
+  const _VisibleSummary({
+    required this.count,
+    required this.liveCount,
+    required this.totalBytes,
+    required this.liveImageBytes,
+    required this.liveVideoBytes,
+  });
+
+  factory _VisibleSummary.from(List<PhotoItem> items) {
+    var liveCount = 0;
+    var totalBytes = 0;
+    var liveImageBytes = 0;
+    var liveVideoBytes = 0;
+    for (final item in items) {
+      totalBytes += item.totalSize;
+      if (!item.isLive) continue;
+      liveCount++;
+      liveImageBytes += item.imageSize;
+      liveVideoBytes += item.videoSize ?? 0;
+    }
+    return _VisibleSummary(
+      count: items.length,
+      liveCount: liveCount,
+      totalBytes: totalBytes,
+      liveImageBytes: liveImageBytes,
+      liveVideoBytes: liveVideoBytes,
+    );
+  }
+
+  final int count;
+  final int liveCount;
+  final int totalBytes;
+  final int liveImageBytes;
+  final int liveVideoBytes;
 }
 
 class _TopScrollDateIndicator extends StatelessWidget {
