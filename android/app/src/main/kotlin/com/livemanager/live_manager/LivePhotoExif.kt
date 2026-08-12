@@ -28,7 +28,26 @@ object LivePhotoExif {
             values["software"] = exif.getAttribute(ExifInterface.TAG_SOFTWARE).orEmpty()
             values["imageDescription"] =
                 exif.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION).orEmpty()
+            values["artist"] = exif.getAttribute(ExifInterface.TAG_ARTIST).orEmpty()
+            values["copyright"] = exif.getAttribute(ExifInterface.TAG_COPYRIGHT).orEmpty()
+            values["userComment"] = exif.getAttribute(ExifInterface.TAG_USER_COMMENT).orEmpty()
             values["flash"] = exif.getAttribute(ExifInterface.TAG_FLASH).orEmpty()
+            values["lensMake"] = exif.getAttribute(ExifInterface.TAG_LENS_MAKE).orEmpty()
+            values["lensModel"] = exif.getAttribute(ExifInterface.TAG_LENS_MODEL).orEmpty()
+            values["bodySerialNumber"] =
+                exif.getAttribute(ExifInterface.TAG_BODY_SERIAL_NUMBER).orEmpty()
+            values["cameraOwnerName"] =
+                exif.getAttribute(ExifInterface.TAG_CAMERA_OWNER_NAME).orEmpty()
+            values["orientation"] = exif.getAttribute(ExifInterface.TAG_ORIENTATION).orEmpty()
+            values["whiteBalance"] = exif.getAttribute(ExifInterface.TAG_WHITE_BALANCE).orEmpty()
+            values["meteringMode"] = exif.getAttribute(ExifInterface.TAG_METERING_MODE).orEmpty()
+            values["exposureProgram"] =
+                exif.getAttribute(ExifInterface.TAG_EXPOSURE_PROGRAM).orEmpty()
+            values["focalLength35mm"] =
+                exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM).orEmpty()
+            values["digitalZoomRatio"] =
+                exif.getAttribute(ExifInterface.TAG_DIGITAL_ZOOM_RATIO).orEmpty()
+            values["gpsAltitude"] = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE).orEmpty()
             values["width"] = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0)
             values["height"] = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
 
@@ -65,6 +84,20 @@ object LivePhotoExif {
             set(ExifInterface.TAG_FLASH, "flash")
             set(ExifInterface.TAG_SOFTWARE, "software")
             set(ExifInterface.TAG_IMAGE_DESCRIPTION, "imageDescription")
+            set(ExifInterface.TAG_ARTIST, "artist")
+            set(ExifInterface.TAG_COPYRIGHT, "copyright")
+            set(ExifInterface.TAG_USER_COMMENT, "userComment")
+            set(ExifInterface.TAG_LENS_MAKE, "lensMake")
+            set(ExifInterface.TAG_LENS_MODEL, "lensModel")
+            set(ExifInterface.TAG_BODY_SERIAL_NUMBER, "bodySerialNumber")
+            set(ExifInterface.TAG_CAMERA_OWNER_NAME, "cameraOwnerName")
+            set(ExifInterface.TAG_ORIENTATION, "orientation")
+            set(ExifInterface.TAG_WHITE_BALANCE, "whiteBalance")
+            set(ExifInterface.TAG_METERING_MODE, "meteringMode")
+            set(ExifInterface.TAG_EXPOSURE_PROGRAM, "exposureProgram")
+            set(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, "focalLength35mm")
+            set(ExifInterface.TAG_DIGITAL_ZOOM_RATIO, "digitalZoomRatio")
+            set(ExifInterface.TAG_GPS_ALTITUDE, "gpsAltitude")
             if (values.containsKey("datetime")) {
                 val value = values["datetime"]?.trim().orEmpty().ifEmpty { null }
                 exif.setAttribute(ExifInterface.TAG_DATETIME, value)
