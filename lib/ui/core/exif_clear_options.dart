@@ -13,36 +13,16 @@ class ExifClearOption {
 }
 
 const exifClearOptions = <ExifClearOption>[
-  ExifClearOption(
-    key: 'gps',
-    title: '位置信息',
-    subtitle: 'GPS 坐标、海拔、定位时间、定位处理信息',
-  ),
-  ExifClearOption(
-    key: 'device',
-    title: '设备信息',
-    subtitle: '相机品牌、型号',
-  ),
-  ExifClearOption(
-    key: 'software',
-    title: '软件信息',
-    subtitle: '拍摄/编辑软件',
-  ),
+  ExifClearOption(key: 'gps', title: '位置信息', subtitle: 'GPS 坐标、海拔、定位时间、定位处理信息'),
+  ExifClearOption(key: 'device', title: '设备信息', subtitle: '相机品牌、型号'),
+  ExifClearOption(key: 'software', title: '软件信息', subtitle: '拍摄/编辑软件'),
   ExifClearOption(
     key: 'datetime',
     title: '时间信息',
-    subtitle: '拍摄时间、数字化时间、时区偏移',
+    subtitle: '拍摄时间、数字化时间、时区偏移（默认不选）',
   ),
-  ExifClearOption(
-    key: 'description',
-    title: '描述信息',
-    subtitle: '图片描述',
-  ),
-  ExifClearOption(
-    key: 'comment',
-    title: '备注信息',
-    subtitle: '用户备注',
-  ),
+  ExifClearOption(key: 'description', title: '描述信息', subtitle: '图片描述'),
+  ExifClearOption(key: 'comment', title: '备注信息', subtitle: '用户备注'),
 ];
 
 class ExifClearSelectionMemory {
@@ -50,7 +30,10 @@ class ExifClearSelectionMemory {
 
   static Set<String> initialSelection() {
     return Set<String>.of(
-      _lastSelection ?? exifClearOptions.map((option) => option.key),
+      _lastSelection ??
+          exifClearOptions
+              .where((option) => option.key != 'datetime')
+              .map((option) => option.key),
     );
   }
 
@@ -74,7 +57,8 @@ class ExifClearDialog extends StatefulWidget {
 }
 
 class _ExifClearDialogState extends State<ExifClearDialog> {
-  late final Set<String> _selected = ExifClearSelectionMemory.initialSelection();
+  late final Set<String> _selected =
+      ExifClearSelectionMemory.initialSelection();
 
   @override
   Widget build(BuildContext context) {
@@ -120,9 +104,9 @@ class _ExifClearDialogState extends State<ExifClearDialog> {
               }
             });
           },
-          child: Text(_selected.length == exifClearOptions.length
-              ? '取消全选'
-              : '全选'),
+          child: Text(
+            _selected.length == exifClearOptions.length ? '取消全选' : '全选',
+          ),
         ),
         FilledButton.tonal(
           onPressed: () => Navigator.of(context).pop(null),

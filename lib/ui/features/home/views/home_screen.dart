@@ -263,8 +263,7 @@ class _HomeScreenState extends State<HomeScreen>
               title: selectionMode
                   ? _SelectionSummary(viewModel: widget.viewModel)
                   : Text(
-                      widget.title ??
-                          (widget.liveOnly ? 'Live 动态' : 'LiveKit'),
+                      widget.title ?? (widget.liveOnly ? 'Live 动态' : 'LiveKit'),
                     ),
               centerTitle: selectionMode,
               actions: selectionMode
@@ -857,7 +856,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (context) => ExifClearDialog(
         title: '清除敏感 EXIF？',
-        description: '将清除 $count 张照片中勾选的元数据。照片内容不会删除，但元数据修改后可能无法恢复。',
+        description: '将清除 $count 张照片中勾选的元数据。默认不清除拍摄时间；元数据修改后可能无法恢复。',
       ),
     );
     if (selected == null || selected.isEmpty || !mounted) return;

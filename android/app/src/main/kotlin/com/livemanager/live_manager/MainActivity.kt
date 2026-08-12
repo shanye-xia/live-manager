@@ -2,6 +2,7 @@ package com.livemanager.live_manager
 
 import android.Manifest
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -23,6 +25,8 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingExifResult: MethodChannel.Result? = null
+    private var pendingExifOperation: PendingExifOperation? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +38,19 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
+        private const val REQUEST_EXIF_WRITE = 1002
+    }
+
+    private sealed class PendingExifOperation {
+        data class Update(
+            val imageUri: String,
+            val values: Map<String, String>
+        ) : PendingExifOperation()
+
+        data class Clear(
+            val imageUris: List<String>,
+            val groups: List<String>
+        ) : PendingExifOperation()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -96,6 +113,7 @@ class MainActivity : FlutterActivity() {
             "shareImages" -> shareImages(call, result)
             "updateExif" -> updateExifAsync(call, result)
             "clearSensitiveExif" -> clearSensitiveExifAsync(call, result)
+            "clearSensitiveExifBatch" -> clearSensitiveExifBatchAsync(call, result)
             "moveToTrash" -> moveToTrashAsync(call, result)
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
             "openAllFilesAccessSettings" -> openAllFilesAccessSettings(result)
@@ -114,7 +132,13 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
             )
         } else {
             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -327,6 +351,49 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_EXIF_WRITE) return
+
+        val result = pendingExifResult
+        val operation = pendingExifOperation
+        pendingExifResult = null
+        pendingExifOperation = null
+
+        if (result == null || operation == null) return
+        if (resultCode != Activity.RESULT_OK) {
+            result.success(mapOf("ok" to false, "status" to "need_permission"))
+            return
+        }
+
+        Thread {
+            try {
+                val ok = when (operation) {
+                    is PendingExifOperation.Update ->
+                        LivePhotoExif.update(applicationContext, operation.imageUri, operation.values)
+                    is PendingExifOperation.Clear ->
+                        clearSensitiveExifBatchNow(operation.imageUris, operation.groups).let { batch ->
+                            runOnUiThread {
+                                if (operation.imageUris.size == 1) {
+                                    result.success(
+                                        mapOf(
+                                            "ok" to ((batch["success"] as? Int ?: 0) > 0)
+                                        )
+                                    )
+                                } else {
+                                    result.success(batch)
+                                }
+                            }
+                                return@Thread
+                        }
+                }
+                runOnUiThread { result.success(mapOf("ok" to ok)) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("exif_write_failed", e.message, null) }
+            }
+        }.start()
+    }
+
     private fun motionVideoAsync(call: MethodCall, result: MethodChannel.Result) {
         val imageId = (call.argument<Number>("imageId"))?.toLong()
             ?: return result.error("bad_args", "imageId 缺失", null)
@@ -414,7 +481,17 @@ class MainActivity : FlutterActivity() {
         Thread {
             try {
                 val ok = LivePhotoExif.update(applicationContext, imageUri, values)
-                runOnUiThread { result.success(mapOf("ok" to ok)) }
+                runOnUiThread {
+                    if (ok) {
+                        result.success(mapOf("ok" to true))
+                    } else {
+                        requestExifWritePermission(
+                            Uri.parse(imageUri),
+                            PendingExifOperation.Update(imageUri, values),
+                            result
+                        )
+                    }
+                }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("exif_write_failed", e.message, null) }
             }
@@ -432,11 +509,110 @@ class MainActivity : FlutterActivity() {
                     imageUri,
                     groups
                 )
-                runOnUiThread { result.success(mapOf("ok" to ok)) }
+                runOnUiThread {
+                    if (ok) {
+                        result.success(mapOf("ok" to true))
+                    } else {
+                        requestExifWritePermission(
+                            Uri.parse(imageUri),
+                            PendingExifOperation.Clear(listOf(imageUri), groups),
+                            result
+                        )
+                    }
+                }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("exif_clear_failed", e.message, null) }
             }
         }.start()
+    }
+
+    private fun clearSensitiveExifBatchAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUris = call.argument<List<String>>("imageUris") ?: emptyList()
+        val groups = call.argument<List<String>>("groups") ?: emptyList()
+        if (imageUris.isEmpty()) {
+            result.success(mapOf("success" to 0, "failed" to 0))
+            return
+        }
+        Thread {
+            try {
+                val batch = clearSensitiveExifBatchNow(imageUris, groups)
+                val failedUris = batch["failedUris"] as? List<*> ?: emptyList<Any>()
+                if (failedUris.isEmpty()) {
+                    runOnUiThread { result.success(batch) }
+                    return@Thread
+                }
+                val retryUris = failedUris.filterIsInstance<String>()
+                runOnUiThread {
+                    requestExifWritePermission(
+                        retryUris.map { Uri.parse(it) },
+                        PendingExifOperation.Clear(retryUris, groups),
+                        result
+                    )
+                }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("exif_clear_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun clearSensitiveExifBatchNow(
+        imageUris: List<String>,
+        groups: List<String>
+    ): Map<String, Any> {
+        var success = 0
+        val failedUris = mutableListOf<String>()
+        for (imageUri in imageUris) {
+            if (LivePhotoExif.clearSensitive(applicationContext, imageUri, groups)) {
+                success++
+            } else {
+                failedUris += imageUri
+            }
+        }
+        return mapOf(
+            "success" to success,
+            "failed" to failedUris.size,
+            "failedUris" to failedUris
+        )
+    }
+
+    private fun requestExifWritePermission(
+        uri: Uri,
+        operation: PendingExifOperation,
+        result: MethodChannel.Result
+    ) = requestExifWritePermission(listOf(uri), operation, result)
+
+    private fun requestExifWritePermission(
+        uris: List<Uri>,
+        operation: PendingExifOperation,
+        result: MethodChannel.Result
+    ) {
+        if (pendingExifResult != null) {
+            result.success(mapOf("ok" to false, "status" to "busy"))
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            result.success(mapOf("ok" to false, "status" to "need_permission"))
+            return
+        }
+        try {
+            val intentSender = MediaStore.createWriteRequest(
+                contentResolver,
+                uris
+            ).intentSender
+            pendingExifResult = result
+            pendingExifOperation = operation
+            startIntentSenderForResult(
+                intentSender,
+                REQUEST_EXIF_WRITE,
+                null,
+                0,
+                0,
+                0,
+                null
+            )
+        } catch (e: Throwable) {
+            result.error("exif_permission_failed", e.message, null)
+        }
     }
 
     // ---- 应用回收站 ----

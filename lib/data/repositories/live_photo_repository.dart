@@ -43,6 +43,12 @@ abstract class LivePhotoRepository {
   /// 清除 GPS、设备、软件、拍摄时间等敏感 EXIF。
   Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups);
 
+  /// 批量清除敏感 EXIF。用于一次授权当前选中的全部照片。
+  Future<({int success, int failed})> clearSensitiveExifBatch(
+    List<PhotoItem> items,
+    List<String> groups,
+  );
+
   /// 把动态视频（或非 Live 照片）移入应用回收站。
   /// 返回 {status, entry?}；status 为 ok / need_permission / failed。
   Future<Map<String, dynamic>> moveToTrash(
@@ -89,7 +95,7 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   }) async {
     final relativePath = item.relativePath;
     final fileName = video
-        ? '${item.displayName.replaceAll('.jpg', '')}.mp4'
+        ? '${_imageNameWithoutJpegExtension(item.displayName)}.mp4'
         : item.displayName;
     if (relativePath.isEmpty || fileName.isEmpty) {
       throw const FileSystemException('媒体文件路径为空');
@@ -97,6 +103,17 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
     final path = '/storage/emulated/0/$relativePath$fileName';
     if (await File(path).exists()) return path;
     throw FileSystemException('无法直接读取媒体文件', path);
+  }
+
+  String _imageNameWithoutJpegExtension(String displayName) {
+    final lowerName = displayName.toLowerCase();
+    if (lowerName.endsWith('.jpg')) {
+      return displayName.substring(0, displayName.length - 4);
+    }
+    if (lowerName.endsWith('.jpeg')) {
+      return displayName.substring(0, displayName.length - 5);
+    }
+    return displayName;
   }
 
   @override
@@ -131,7 +148,8 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
 
   @override
   Future<String> videoFilePathFor(PhotoItem item) {
-    if (item.isGoogleMotionPhoto) {
+    if (item.isGoogleMotionPhoto ||
+        (item.isLive && item.videoUri == null && item.videoSize != null)) {
       final videoSize = item.videoSize;
       if (videoSize == null || videoSize <= 0) {
         throw const FileSystemException('Motion Photo 视频大小无效');
@@ -142,6 +160,9 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
         totalSize: item.imageSize,
         videoSize: videoSize,
       );
+    }
+    if (item.videoUri == null) {
+      throw const FileSystemException('动态视频信息未就绪');
     }
     return _directStoragePath(item, video: true);
   }
@@ -169,6 +190,21 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   @override
   Future<bool> clearSensitiveExif(PhotoItem item, List<String> groups) {
     return _service.clearSensitiveExif(item.imageUri, groups);
+  }
+
+  @override
+  Future<({int success, int failed})> clearSensitiveExifBatch(
+    List<PhotoItem> items,
+    List<String> groups,
+  ) async {
+    final result = await _service.clearSensitiveExifBatch(
+      items.map((item) => item.imageUri).toList(),
+      groups,
+    );
+    return (
+      success: (result['success'] as num?)?.toInt() ?? 0,
+      failed: (result['failed'] as num?)?.toInt() ?? 0,
+    );
   }
 
   @override

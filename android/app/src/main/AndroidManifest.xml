@@ -7,6 +7,10 @@
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- Android 10+ 读取照片原始 GPS EXIF 需要该权限，否则系统会抹除位置信息。 -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+    <!-- Geocoder 反查 GPS 地址时部分系统需要网络后端。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 一次性“所有文件访问”授权：授权后删除无需每次弹系统确认框 -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"

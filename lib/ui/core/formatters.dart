@@ -38,7 +38,40 @@ List<(String, String)> formatExif(Map<String, dynamic> exif) {
   add('快门', _formatShutter(exif['exposureTime']));
   add('光圈', 'f/${_formatDouble(exif['aperture'])}');
   add('曝光补偿', _formatRational(exif['exposureBias'], unit: ' EV'));
+  add('亮度', _formatRational(exif['brightnessValue']));
+  add('最大光圈', _formatRational(exif['maxApertureValue']));
+  add('闪光灯', exif['flash']);
+  add('曝光模式', exif['exposureMode']);
+  add('曝光程序', exif['exposureProgram']);
+  add('测光模式', exif['meteringMode']);
+  add('白平衡', exif['whiteBalance']);
+  add('光源', exif['lightSource']);
+  add('场景类型', exif['sceneCaptureType']);
+  add('感光方式', exif['sensingMethod']);
+  add('35mm 等效焦距', exif['focalLength35mm']);
+  add('数码变焦', _formatRational(exif['digitalZoomRatio']));
+  final lens = [
+    (exif['lensMake'] as String?)?.trim() ?? '',
+    (exif['lensModel'] as String?)?.trim() ?? '',
+  ].where((e) => e.isNotEmpty).join(' ');
+  add('镜头', lens);
   add('分辨率', '${exif['width']} × ${exif['height']}');
+  add(
+    '像素尺寸',
+    _joinNonEmpty([exif['pixelXDimension'], exif['pixelYDimension']], ' × '),
+  );
+  add('色彩空间', exif['colorSpace']);
+  add('X 分辨率', exif['xResolution']);
+  add('Y 分辨率', exif['yResolution']);
+  add('分辨率单位', exif['resolutionUnit']);
+  add('YCbCr 定位', exif['yCbCrPositioning']);
+  add('MakerNote', exif['makerNote']);
+  add('软件', exif['software']);
+  add('拍摄时间', exif['datetimeOriginal']);
+  add('图片修改时间', exif['datetime']);
+  add('数字化时间', exif['datetimeDigitized']);
+  add('时区', exif['offsetTimeOriginal'] ?? exif['offsetTime']);
+  add('亚秒时间', exif['subsecTimeOriginal'] ?? exif['subsecTime']);
 
   final address = (exif['gpsAddress'] as String?)?.trim();
   final lat = exif['latitude'];
@@ -48,7 +81,32 @@ List<(String, String)> formatExif(Map<String, dynamic> exif) {
   } else if (lat is num && lng is num) {
     add('GPS', '$lat, $lng');
   }
+  add('GPS 海拔', _formatRational(exif['gpsAltitude']));
+  add('GPS 版本', exif['gpsVersionId']);
+  add(
+    'GPS 时间',
+    _joinNonEmpty([exif['gpsDateStamp'], exif['gpsTimeStamp']], ' '),
+  );
+  add('GPS 定位方式', exif['gpsProcessingMethod']);
+  add('GPS 区域信息', exif['gpsAreaInformation']);
+  add('GPS 图像方向', _formatRational(exif['gpsImgDirection']));
+  add('GPS 速度', _formatRational(exif['gpsSpeed']));
+  add('GPS 精度', _formatRational(exif['gpsDop']));
+  add('GPS 坐标系', exif['gpsMapDatum']);
+  add('描述', exif['imageDescription']);
+  add('作者', exif['artist']);
+  add('版权', exif['copyright']);
+  add('备注', exif['userComment']);
   return result;
+}
+
+String? _joinNonEmpty(List<Object?> values, String separator) {
+  final parts = values
+      .map((e) => e?.toString().trim() ?? '')
+      .where((e) => e.isNotEmpty && e != '0')
+      .toList();
+  if (parts.isEmpty) return null;
+  return parts.join(separator);
 }
 
 /// 把 "6540/1000" 或 "6.54" 这类 EXIF 有理数解析成易读数字。
@@ -93,7 +151,9 @@ String? _formatShutter(Object? raw) {
 }
 
 String _formatDouble(Object? raw) {
-  if (raw is num) return raw.toStringAsFixed(raw.truncateToDouble() == raw ? 0 : 1);
+  if (raw is num) {
+    return raw.toStringAsFixed(raw.truncateToDouble() == raw ? 0 : 1);
+  }
   final text = raw?.toString().trim() ?? '';
   final value = double.tryParse(text);
   if (value == null) return text;

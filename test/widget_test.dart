@@ -73,6 +73,12 @@ class _FakeRepository implements LivePhotoRepository {
       true;
 
   @override
+  Future<({int success, int failed})> clearSensitiveExifBatch(
+    List<PhotoItem> items,
+    List<String> groups,
+  ) async => (success: items.length, failed: 0);
+
+  @override
   Future<Map<String, dynamic>> moveToTrash(
     PhotoItem item, {
     required bool deleteVideo,

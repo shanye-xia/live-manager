@@ -112,7 +112,20 @@ class LivePhotoPlatformService {
       'clearSensitiveExif',
       {'imageUri': imageUri, 'groups': groups},
     );
-    return result?['ok'] == true;
+    return result?['ok'] == true ||
+        ((result?['success'] as num?)?.toInt() ?? 0) > 0;
+  }
+
+  /// 批量清除敏感 EXIF。原生侧会把失败项合并成一次系统写入授权。
+  Future<Map<String, dynamic>> clearSensitiveExifBatch(
+    List<String> imageUris,
+    List<String> groups,
+  ) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'clearSensitiveExifBatch',
+      {'imageUris': imageUris, 'groups': groups},
+    );
+    return result ?? const {'success': 0, 'failed': 0};
   }
 
   /// 把文件移入应用回收站。返回 {entry, needsConsent}。

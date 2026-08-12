@@ -403,24 +403,12 @@ class HomeViewModel extends ChangeNotifier {
     final targets = _allItems
         .where((e) => _selectedIds.contains(e.imageId))
         .toList();
-    var success = 0;
-    var failed = 0;
-    for (final item in targets) {
-      try {
-        if (await repository.clearSensitiveExif(item, groups)) {
-          success++;
-        } else {
-          failed++;
-        }
-      } catch (_) {
-        failed++;
-      }
-    }
+    final result = await repository.clearSensitiveExifBatch(targets, groups);
     _selectionMode = false;
     _selectedIds.clear();
     _selectedLiveCount = 0;
     notifyListeners();
-    return BatchExifResult(success: success, failed: failed);
+    return BatchExifResult(success: result.success, failed: result.failed);
   }
 
   Future<void> shareSelected() async {

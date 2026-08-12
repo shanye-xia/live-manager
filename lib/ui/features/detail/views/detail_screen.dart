@@ -1179,7 +1179,7 @@ class _PhotoPageState extends State<_PhotoPage>
             _EditActionTile(
               icon: Icons.privacy_tip_outlined,
               title: '清除敏感 EXIF',
-              subtitle: 'GPS、设备、软件、拍摄时间等',
+              subtitle: 'GPS、设备、软件、描述等',
               destructive: true,
               onTap: () {
                 Navigator.of(context).pop();
@@ -1259,6 +1259,8 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
   late final TextEditingController _make;
   late final TextEditingController _model;
   late final TextEditingController _datetime;
+  late final TextEditingController _datetimeModified;
+  late final TextEditingController _datetimeDigitized;
   late final TextEditingController _software;
   late final TextEditingController _description;
   late final TextEditingController _artist;
@@ -1267,6 +1269,9 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
   late final TextEditingController _latitude;
   late final TextEditingController _longitude;
   late final TextEditingController _gpsAltitude;
+  late final TextEditingController _gpsAltitudeRef;
+  late final TextEditingController _gpsProcessingMethod;
+  late final TextEditingController _gpsAreaInformation;
   late final TextEditingController _focalLength;
   late final TextEditingController _focalLength35mm;
   late final TextEditingController _iso;
@@ -1282,6 +1287,9 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
   late final TextEditingController _whiteBalance;
   late final TextEditingController _meteringMode;
   late final TextEditingController _exposureProgram;
+  late final TextEditingController _exposureMode;
+  late final TextEditingController _sceneCaptureType;
+  late final TextEditingController _lightSource;
   late final TextEditingController _digitalZoomRatio;
   bool _showAdvanced = false;
 
@@ -1292,7 +1300,13 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _make = TextEditingController(text: '${exif['make'] ?? ''}');
     _model = TextEditingController(text: '${exif['model'] ?? ''}');
     _datetime = TextEditingController(
-      text: '${exif['datetimeOriginal'] ?? exif['datetime'] ?? ''}',
+      text: '${exif['datetimeOriginal'] ?? ''}',
+    );
+    _datetimeModified = TextEditingController(
+      text: '${exif['datetime'] ?? ''}',
+    );
+    _datetimeDigitized = TextEditingController(
+      text: '${exif['datetimeDigitized'] ?? ''}',
     );
     _software = TextEditingController(text: '${exif['software'] ?? ''}');
     _description = TextEditingController(
@@ -1304,6 +1318,15 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _latitude = TextEditingController(text: '${exif['latitude'] ?? ''}');
     _longitude = TextEditingController(text: '${exif['longitude'] ?? ''}');
     _gpsAltitude = TextEditingController(text: '${exif['gpsAltitude'] ?? ''}');
+    _gpsAltitudeRef = TextEditingController(
+      text: '${exif['gpsAltitudeRef'] ?? ''}',
+    );
+    _gpsProcessingMethod = TextEditingController(
+      text: '${exif['gpsProcessingMethod'] ?? ''}',
+    );
+    _gpsAreaInformation = TextEditingController(
+      text: '${exif['gpsAreaInformation'] ?? ''}',
+    );
     _focalLength = TextEditingController(text: '${exif['focalLength'] ?? ''}');
     _focalLength35mm = TextEditingController(
       text: '${exif['focalLength35mm'] ?? ''}',
@@ -1335,6 +1358,13 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _exposureProgram = TextEditingController(
       text: '${exif['exposureProgram'] ?? ''}',
     );
+    _exposureMode = TextEditingController(
+      text: '${exif['exposureMode'] ?? ''}',
+    );
+    _sceneCaptureType = TextEditingController(
+      text: '${exif['sceneCaptureType'] ?? ''}',
+    );
+    _lightSource = TextEditingController(text: '${exif['lightSource'] ?? ''}');
     _digitalZoomRatio = TextEditingController(
       text: '${exif['digitalZoomRatio'] ?? ''}',
     );
@@ -1345,6 +1375,8 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _make.dispose();
     _model.dispose();
     _datetime.dispose();
+    _datetimeModified.dispose();
+    _datetimeDigitized.dispose();
     _software.dispose();
     _description.dispose();
     _artist.dispose();
@@ -1353,6 +1385,9 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _latitude.dispose();
     _longitude.dispose();
     _gpsAltitude.dispose();
+    _gpsAltitudeRef.dispose();
+    _gpsProcessingMethod.dispose();
+    _gpsAreaInformation.dispose();
     _focalLength.dispose();
     _focalLength35mm.dispose();
     _iso.dispose();
@@ -1368,6 +1403,9 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _whiteBalance.dispose();
     _meteringMode.dispose();
     _exposureProgram.dispose();
+    _exposureMode.dispose();
+    _sceneCaptureType.dispose();
+    _lightSource.dispose();
     _digitalZoomRatio.dispose();
     super.dispose();
   }
@@ -1386,6 +1424,9 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
       'longitude': _longitude.text.trim(),
       if (_showAdvanced) ...{
         'gpsAltitude': _gpsAltitude.text.trim(),
+        'gpsAltitudeRef': _gpsAltitudeRef.text.trim(),
+        'gpsProcessingMethod': _gpsProcessingMethod.text.trim(),
+        'gpsAreaInformation': _gpsAreaInformation.text.trim(),
         'focalLength': _focalLength.text.trim(),
         'focalLength35mm': _focalLength35mm.text.trim(),
         'iso': _iso.text.trim(),
@@ -1401,7 +1442,12 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
         'whiteBalance': _whiteBalance.text.trim(),
         'meteringMode': _meteringMode.text.trim(),
         'exposureProgram': _exposureProgram.text.trim(),
+        'exposureMode': _exposureMode.text.trim(),
+        'sceneCaptureType': _sceneCaptureType.text.trim(),
+        'lightSource': _lightSource.text.trim(),
         'digitalZoomRatio': _digitalZoomRatio.text.trim(),
+        'datetimeModified': _datetimeModified.text.trim(),
+        'datetimeDigitized': _datetimeDigitized.text.trim(),
       },
     });
   }
@@ -1446,6 +1492,9 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
           ),
           if (_showAdvanced) ...[
             _ExifTextField(controller: _gpsAltitude, label: 'GPS 海拔'),
+            _ExifTextField(controller: _gpsAltitudeRef, label: 'GPS 海拔参考'),
+            _ExifTextField(controller: _gpsProcessingMethod, label: 'GPS 定位方式'),
+            _ExifTextField(controller: _gpsAreaInformation, label: 'GPS 区域信息'),
             _ExifTextField(controller: _focalLength, label: '焦距'),
             _ExifTextField(controller: _focalLength35mm, label: '35mm 等效焦距'),
             _ExifTextField(controller: _iso, label: 'ISO'),
@@ -1461,7 +1510,20 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
             _ExifTextField(controller: _whiteBalance, label: '白平衡'),
             _ExifTextField(controller: _meteringMode, label: '测光模式'),
             _ExifTextField(controller: _exposureProgram, label: '曝光程序'),
+            _ExifTextField(controller: _exposureMode, label: '曝光模式'),
+            _ExifTextField(controller: _sceneCaptureType, label: '场景类型'),
+            _ExifTextField(controller: _lightSource, label: '光源'),
             _ExifTextField(controller: _digitalZoomRatio, label: '数码变焦'),
+            _ExifTextField(
+              controller: _datetimeModified,
+              label: '图片修改时间',
+              hint: 'yyyy:MM:dd HH:mm:ss',
+            ),
+            _ExifTextField(
+              controller: _datetimeDigitized,
+              label: '数字化时间',
+              hint: 'yyyy:MM:dd HH:mm:ss',
+            ),
           ],
         ],
       ),
@@ -1698,7 +1760,7 @@ class _InfoSheet extends StatelessWidget {
     final rows = <(String, String)>[
       ('文件名', item.displayName),
       ('路径', _displayPath(item)),
-      ('拍摄时间', formatDateTime(item.createTime)),
+      ('媒体时间', formatDateTime(item.createTime)),
       ('照片', formatBytes(item.imageSize)),
       if (item.isLive) ('动态', formatBytes(item.videoSize ?? 0)),
       ('总计', formatBytes(item.totalSize)),
@@ -1706,8 +1768,28 @@ class _InfoSheet extends StatelessWidget {
     final exif = viewModel.exif;
     final gpsNumbers = _gpsNumbers(exif);
     var showGpsNumbers = false;
+    var showMoreExif = false;
+    final primaryExifLabels = {
+      '相机',
+      '焦距',
+      'ISO',
+      '快门',
+      '光圈',
+      '曝光补偿',
+      '分辨率',
+      'GPS',
+    };
+    final primaryExifRows = <(String, String)>[];
+    final moreExifRows = <(String, String)>[];
     if (exif != null) {
-      rows.addAll(formatExif(exif));
+      for (final row in formatExif(exif)) {
+        if (primaryExifLabels.contains(row.$1)) {
+          primaryExifRows.add(row);
+        } else {
+          moreExifRows.add(row);
+        }
+      }
+      rows.addAll(primaryExifRows);
     }
 
     return SafeArea(
@@ -1759,6 +1841,41 @@ class _InfoSheet extends StatelessWidget {
                                   )
                                 : null,
                           ),
+                        if (moreExifRows.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () => setSheetState(
+                              () => showMoreExif = !showMoreExif,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Row(
+                                children: [
+                                  const Text(
+                                    '更多 EXIF',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Icon(
+                                    showMoreExif
+                                        ? Icons.expand_less_rounded
+                                        : Icons.expand_more_rounded,
+                                    color: Colors.white60,
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (showMoreExif)
+                            for (final (label, value) in moreExifRows)
+                              _InfoRow(label: label, value: value),
+                        ],
                       ],
                     );
                   },
@@ -1796,10 +1913,9 @@ class _InfoSheet extends StatelessWidget {
 
   String? _gpsNumbers(Map<String, dynamic>? exif) {
     if (exif == null) return null;
-    final address = (exif['gpsAddress'] as String?)?.trim();
     final lat = exif['latitude'];
     final lng = exif['longitude'];
-    if (address == null || address.isEmpty || lat is! num || lng is! num) {
+    if (lat is! num || lng is! num) {
       return null;
     }
     return '$lat, $lng';
