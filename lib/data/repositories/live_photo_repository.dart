@@ -131,6 +131,18 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
 
   @override
   Future<String> videoFilePathFor(PhotoItem item) {
+    if (item.isGoogleMotionPhoto) {
+      final videoSize = item.videoSize;
+      if (videoSize == null || videoSize <= 0) {
+        throw const FileSystemException('Motion Photo 视频大小无效');
+      }
+      return _service.getMotionVideo(
+        imageId: item.imageId,
+        imageUri: item.imageUri,
+        totalSize: item.imageSize,
+        videoSize: videoSize,
+      );
+    }
     return _directStoragePath(item, video: true);
   }
 
@@ -164,6 +176,9 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
     PhotoItem item, {
     required bool deleteVideo,
   }) {
+    if (deleteVideo && !item.canDeleteLivePart) {
+      return Future.value({'status': 'failed'});
+    }
     final uri = deleteVideo ? item.videoUri! : item.imageUri;
     final fileName = deleteVideo
         ? '${item.displayName.replaceAll('.jpg', '')}.mp4'

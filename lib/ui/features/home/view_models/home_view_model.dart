@@ -350,7 +350,12 @@ class HomeViewModel extends ChangeNotifier {
   /// 普通照片不受影响。删除后原地更新列表、保持滚动位置。
   Future<BatchDeleteResult> deleteLiveParts() async {
     final targets = _allItems
-        .where((e) => _selectedIds.contains(e.imageId) && e.isLive)
+        .where(
+          (e) =>
+              _selectedIds.contains(e.imageId) &&
+              e.isLive &&
+              e.canDeleteLivePart,
+        )
         .toList();
     var videoOnly = 0;
     var failed = 0;

@@ -5,25 +5,19 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import java.io.File
-import kotlin.math.abs
 
 /**
  * MediaStore 扫描器：返回全部 JPG 照片，
- * 并识别同名同目录、时长 < 5 秒的 MP4 作为 Live Photo。
+ * 并通过检测器链识别 Live Photo。
  */
 object LivePhotoScanner {
 
     /** Live 视频最大时长阈值（毫秒）。 */
     const val MAX_LIVE_DURATION_MS = 5_000L
 
-    private data class MediaRow(
-        val id: Long,
-        val displayName: String,
-        val size: Long,
-        val durationMs: Long,
-        val directory: String,
-        val dateTaken: Long,
-        val uri: Uri
+    private val detectors: List<LivePhotoDetector> = listOf(
+        VivoLegacyPairDetector(),
+        GoogleMotionPhotoDetector()
     )
 
     fun scanAll(context: Context): List<PhotoItem> {
@@ -32,13 +26,16 @@ object LivePhotoScanner {
 
         val imageIndex = indexByKey(images)
         val videoIndex = indexByKey(videos)
+        val detectionContext = LivePhotoDetectionContext(
+            appContext = context.applicationContext,
+            videosByPairKey = videoIndex
+        )
 
         val result = mutableListOf<PhotoItem>()
         for (key in imageIndex.keys) {
             val image = imageIndex.getValue(key).first()
-            val candidate = videoIndex[key]
-                ?.filter { it.durationMs in 1..MAX_LIVE_DURATION_MS }
-                ?.minByOrNull { abs(it.dateTaken - image.dateTaken) }
+            val detection = detect(image, detectionContext)
+            val video = detection.video
 
             result += PhotoItem(
                 imageId = image.id,
@@ -47,15 +44,31 @@ object LivePhotoScanner {
                 createTime = if (image.dateTaken > 0) image.dateTaken else image.id,
                 imageSize = image.size,
                 relativePath = image.directory,
-                videoId = candidate?.id,
-                videoUri = candidate?.uri.toString(),
-                videoSize = candidate?.size,
-                videoDurationMs = candidate?.durationMs,
-                isLive = candidate != null
+                videoId = video?.id,
+                videoUri = video?.uri.toString(),
+                videoSize = detection.motionSize,
+                videoDurationMs = video?.durationMs,
+                isLive = detection.isLive,
+                liveProtocol = detection.protocol.name,
+                canPlayLiveVideo = detection.canPlayLiveVideo,
+                canDeleteLivePart = detection.canDeleteLivePart
             )
         }
         result.sortByDescending { it.createTime }
         return result
+    }
+
+    private fun detect(
+        image: MediaRow,
+        context: LivePhotoDetectionContext
+    ): LivePhotoDetection {
+        for (detector in detectors) {
+            val detection = detector.detect(image, context)
+            if (detection.confidence == LivePhotoDetectionConfidence.VERIFIED) {
+                return detection
+            }
+        }
+        return LivePhotoDetection.None
     }
 
     private fun queryRows(context: Context, isVideo: Boolean): List<MediaRow> {
@@ -135,10 +148,10 @@ object LivePhotoScanner {
     }
 
     /** 配对键：目录 + 去扩展名文件名（小写）。 */
-    private fun keyOf(row: MediaRow): String = "${row.directory}|${baseName(row.displayName)}"
+    fun pairKeyOf(row: MediaRow): String = "${row.directory}|${baseName(row.displayName)}"
 
     private fun indexByKey(rows: List<MediaRow>): Map<String, List<MediaRow>> =
-        rows.groupBy { keyOf(it) }
+        rows.groupBy { pairKeyOf(it) }
 
     /** 目录信息：优先 RELATIVE_PATH（API 29+），否则从 DATA 的父目录推导。 */
     private fun directoryOf(

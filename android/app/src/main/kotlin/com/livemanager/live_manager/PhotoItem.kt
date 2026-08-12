@@ -12,7 +12,10 @@ data class PhotoItem(
     val videoUri: String?,
     val videoSize: Long?,
     val videoDurationMs: Long?,
-    val isLive: Boolean
+    val isLive: Boolean,
+    val liveProtocol: String = "NONE",
+    val canPlayLiveVideo: Boolean = videoUri != null,
+    val canDeleteLivePart: Boolean = videoUri != null
 ) {
     fun toMap(): Map<String, Any?> = mapOf(
         "imageId" to imageId,
@@ -25,6 +28,9 @@ data class PhotoItem(
         "videoUri" to videoUri,
         "videoSize" to videoSize,
         "videoDurationMs" to videoDurationMs,
-        "isLive" to isLive
+        "isLive" to isLive,
+        "liveProtocol" to liveProtocol,
+        "canPlayLiveVideo" to canPlayLiveVideo,
+        "canDeleteLivePart" to canDeleteLivePart
     )
 }

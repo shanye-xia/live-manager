@@ -70,6 +70,55 @@ object LivePhotoThumbnails {
         return cacheFile.absolutePath
     }
 
+    /**
+     * 标准单文件 Motion Photo 播放缓存。
+     *
+     * 参考 Android Motion Photo 1.0 / Media3 / MotionPhoto2 等实现思路：
+     * Motion video 位于文件尾部，长度由 XMP Container Item:Length 描述。
+     * 这里只做只读提取用于播放，不修改、不截断、不覆盖系统相册原文件。
+     */
+    fun motionVideoFile(
+        context: Context,
+        imageId: Long,
+        imageUri: String,
+        totalSize: Long,
+        videoSize: Long
+    ): String {
+        if (totalSize <= 0L || videoSize <= 0L || videoSize >= totalSize) {
+            throw IOException("Motion Photo 视频范围无效")
+        }
+        val videoStart = totalSize - videoSize
+        val dir = File(context.cacheDir, "videos").apply { mkdirs() }
+        val cacheFile = File(dir, "motion_${imageId}_${videoStart}_${videoSize}.mp4")
+        if (cacheFile.exists() && cacheFile.length() == videoSize) {
+            touch(cacheFile)
+            return cacheFile.absolutePath
+        }
+
+        val uri = Uri.parse(imageUri)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            input.skipFully(videoStart)
+            FileOutputStream(cacheFile).use { out ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var remaining = videoSize
+                while (remaining > 0L) {
+                    val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                    if (read < 0) throw IOException("Motion Photo 视频数据不完整")
+                    out.write(buffer, 0, read)
+                    remaining -= read
+                }
+            }
+        } ?: throw IOException("无法读取 Motion Photo: $imageUri")
+
+        if (cacheFile.length() != videoSize) {
+            cacheFile.delete()
+            throw IOException("Motion Photo 视频缓存大小不匹配")
+        }
+        touch(cacheFile)
+        enforceQuota(dir, MAX_VIDEO_BYTES)
+        return cacheFile.absolutePath
+    }
+
     /** 刷新最后使用时间，作为淘汰顺序依据（仅在看详情/播放时调用，缩略图不 touch 以免预热干扰排序）。 */
     private fun touch(file: File) {
         try {
@@ -111,9 +160,27 @@ object LivePhotoThumbnails {
                 }
             }
             File(File(context.cacheDir, "full"), "$imageId.jpg").delete()
+            File(context.cacheDir, "videos").listFiles()?.forEach { f ->
+                if (f.isFile && f.name.startsWith("motion_${imageId}_") && f.name.endsWith(".mp4")) {
+                    f.delete()
+                }
+            }
         }
         if (videoId != null) {
             File(File(context.cacheDir, "videos"), "$videoId.mp4").delete()
+        }
+    }
+
+    private fun java.io.InputStream.skipFully(bytes: Long) {
+        var remaining = bytes
+        while (remaining > 0L) {
+            val skipped = skip(remaining)
+            if (skipped <= 0L) {
+                if (read() < 0) throw IOException("跳过 Motion Photo 视频前缀失败")
+                remaining--
+            } else {
+                remaining -= skipped
+            }
         }
     }
 

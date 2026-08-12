@@ -33,6 +33,7 @@ class DetailViewModel extends ChangeNotifier {
   bool _playing = false;
   bool _fullImageReady = false;
   String? _fullImageError;
+  String? _videoError;
   bool _busy = false;
 
   bool get loading => _loading;
@@ -44,6 +45,7 @@ class DetailViewModel extends ChangeNotifier {
   bool get videoReady => _controller?.value.isInitialized ?? false;
   bool get fullImageReady => _fullImageReady;
   String? get fullImageError => _fullImageError;
+  String? get videoError => _videoError;
 
   Future<void> init() async {
     // 缩略图与原图并行加载：谁先就绪先显示谁，避免互相阻塞
@@ -53,8 +55,8 @@ class DetailViewModel extends ChangeNotifier {
       _showThumb(thumb);
     } else {
       try {
-        final path = await (thumbnailFuture ??
-            repository.thumbnailPathFor(item));
+        final path =
+            await (thumbnailFuture ?? repository.thumbnailPathFor(item));
         if (!_fullImageReady && path.isNotEmpty) _showThumb(path);
       } catch (_) {
         // 缩略图失败不阻塞原图加载
@@ -63,7 +65,9 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   void _showThumb(String path) {
-    if (_fullImageReady) return; // already showing original, never downgrade to thumb
+    if (_fullImageReady) {
+      return; // already showing original, never downgrade to thumb
+    }
     _imagePath = path;
     _loading = false;
     notifyListeners();
@@ -88,10 +92,11 @@ class DetailViewModel extends ChangeNotifier {
       notifyListeners();
     }
 
-    if (item.isLive) {
+    if (item.canPlayLiveVideo) {
       try {
         videoPath = await repository.videoFilePathFor(item);
-      } catch (_) {
+      } catch (e) {
+        _videoError = e.toString();
         // 视频不可用不影响看图与 EXIF
       }
     }
@@ -117,7 +122,9 @@ class DetailViewModel extends ChangeNotifier {
       });
       _controller = controller;
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
+      _videoError = e.toString();
+      notifyListeners();
       // 忽略：视频不可用时仍可查看静态图
     }
   }
@@ -194,9 +201,12 @@ class DetailViewModel extends ChangeNotifier {
   /// 把动态视频（或非 Live 照片）移入应用回收站。
   Future<DeleteOutcome> startDelete({bool videoOnly = true}) async {
     if (_busy) return DeleteOutcome.failed;
+    if (videoOnly && item.isLive && !item.canDeleteLivePart) {
+      return DeleteOutcome.failed;
+    }
     _busy = true;
     try {
-      if (item.isLive && !videoOnly) {
+      if (item.canDeleteLivePart && !videoOnly) {
         final videoPlan = await repository
             .moveToTrash(item, deleteVideo: true)
             .timeout(const Duration(seconds: 30));
@@ -212,7 +222,7 @@ class DetailViewModel extends ChangeNotifier {
         return DeleteOutcome.videoOnly;
       }
       final plan = await repository
-          .moveToTrash(item, deleteVideo: item.isLive && videoOnly)
+          .moveToTrash(item, deleteVideo: item.canDeleteLivePart && videoOnly)
           .timeout(const Duration(seconds: 30));
       return switch (plan['status']) {
         'ok' => DeleteOutcome.done,

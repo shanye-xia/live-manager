@@ -12,7 +12,14 @@ class PhotoItem {
     this.videoSize,
     this.videoDurationMs,
     required this.isLive,
-  });
+    this.liveProtocol = 'NONE',
+    bool? canPlayLiveVideo,
+    bool? canDeleteLivePart,
+  }) : canPlayLiveVideo =
+           canPlayLiveVideo ??
+           ((liveProtocol == 'GOOGLE_MOTION_PHOTO' && isLive) ||
+               videoUri != null),
+       canDeleteLivePart = canDeleteLivePart ?? videoUri != null;
 
   final int imageId;
   final String imageUri;
@@ -25,6 +32,16 @@ class PhotoItem {
   final int? videoSize;
   final int? videoDurationMs;
   final bool isLive;
+  final String liveProtocol;
+  final bool canPlayLiveVideo;
+  final bool canDeleteLivePart;
+
+  bool get isGoogleMotionPhoto =>
+      liveProtocol == 'GOOGLE_MOTION_PHOTO' ||
+      (isLive &&
+          videoUri == null &&
+          videoSize != null &&
+          displayName.toLowerCase().contains('.mp.'));
 
   int get totalSize => imageSize + (videoSize ?? 0);
 
@@ -40,6 +57,9 @@ class PhotoItem {
     int? videoSize,
     int? videoDurationMs,
     bool? isLive,
+    String? liveProtocol,
+    bool? canPlayLiveVideo,
+    bool? canDeleteLivePart,
   }) {
     return PhotoItem(
       imageId: imageId ?? this.imageId,
@@ -53,23 +73,40 @@ class PhotoItem {
       videoSize: videoSize ?? this.videoSize,
       videoDurationMs: videoDurationMs ?? this.videoDurationMs,
       isLive: isLive ?? this.isLive,
+      liveProtocol: liveProtocol ?? this.liveProtocol,
+      canPlayLiveVideo: canPlayLiveVideo ?? this.canPlayLiveVideo,
+      canDeleteLivePart: canDeleteLivePart ?? this.canDeleteLivePart,
     );
   }
 
   factory PhotoItem.fromJson(Map<String, dynamic> json) {
+    final isLive = json['isLive'] as bool? ?? false;
+    final liveProtocol = json['liveProtocol'] as String? ?? 'NONE';
     return PhotoItem(
       imageId: json['imageId'] as int,
       imageUri: json['imageUri'] as String,
       displayName: json['displayName'] as String,
-      createTime:
-          DateTime.fromMillisecondsSinceEpoch(json['createTime'] as int),
+      createTime: DateTime.fromMillisecondsSinceEpoch(
+        json['createTime'] as int,
+      ),
       imageSize: json['imageSize'] as int,
       relativePath: json['relativePath'] as String? ?? '',
       videoId: json['videoId'] as int?,
       videoUri: json['videoUri'] as String?,
       videoSize: json['videoSize'] as int?,
       videoDurationMs: json['videoDurationMs'] as int?,
-      isLive: json['isLive'] as bool? ?? false,
+      isLive: isLive,
+      liveProtocol: liveProtocol,
+      canPlayLiveVideo:
+          (json['canPlayLiveVideo'] as bool?) ??
+          (((liveProtocol == 'GOOGLE_MOTION_PHOTO' ||
+                      (json['displayName'] as String).toLowerCase().contains(
+                        '.mp.',
+                      )) &&
+                  isLive) ||
+              json['videoUri'] != null),
+      canDeleteLivePart:
+          (json['canDeleteLivePart'] as bool?) ?? (json['videoUri'] != null),
     );
   }
 
@@ -86,6 +123,9 @@ class PhotoItem {
       'videoSize': videoSize,
       'videoDurationMs': videoDurationMs,
       'isLive': isLive,
+      'liveProtocol': liveProtocol,
+      'canPlayLiveVideo': canPlayLiveVideo,
+      'canDeleteLivePart': canDeleteLivePart,
     };
   }
 }

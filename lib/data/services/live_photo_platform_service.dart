@@ -63,6 +63,22 @@ class LivePhotoPlatformService {
     return path ?? '';
   }
 
+  /// 从标准单文件 Motion Photo 中只读提取尾部视频到 app cache，返回缓存 MP4 路径。
+  Future<String> getMotionVideo({
+    required int imageId,
+    required String imageUri,
+    required int totalSize,
+    required int videoSize,
+  }) async {
+    final path = await _channel.invokeMethod<String>('getMotionVideo', {
+      'imageId': imageId,
+      'imageUri': imageUri,
+      'totalSize': totalSize,
+      'videoSize': videoSize,
+    });
+    return path ?? '';
+  }
+
   /// 读取 JPG 的 EXIF 信息（只读）。
   Future<Map<String, dynamic>> getExif(String imageUri) async {
     final result = await _channel.invokeMapMethod<String, dynamic>('getExif', {

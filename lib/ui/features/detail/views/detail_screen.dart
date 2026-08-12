@@ -394,13 +394,15 @@ class _PhotoPageState extends State<_PhotoPage>
       onPointerCancel: _onPointerCancel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPressStart: widget.item.isLive
+        onLongPressStart: widget.item.canPlayLiveVideo
             ? (_) => _viewModel.startPlayback()
             : null,
-        onLongPressEnd: widget.item.isLive
+        onLongPressEnd: widget.item.canPlayLiveVideo
             ? (_) => _viewModel.stopPlayback()
             : null,
-        onLongPressCancel: widget.item.isLive ? _viewModel.stopPlayback : null,
+        onLongPressCancel: widget.item.canPlayLiveVideo
+            ? _viewModel.stopPlayback
+            : null,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -898,12 +900,17 @@ class _PhotoPageState extends State<_PhotoPage>
                       ],
                     ),
                   ),
-                  if (item.isLive) ...[
+                  if (item.canPlayLiveVideo) ...[
                     const SizedBox(height: 8),
                     _GlassPanel(
-                      child: const Text(
-                        '长按图片播放动态效果',
-                        style: TextStyle(color: Colors.white70, fontSize: 11),
+                      child: Text(
+                        _viewModel.videoError == null
+                            ? '长按图片播放动态效果'
+                            : '动态播放准备失败：${_viewModel.videoError}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
                       ),
                     ),
                   ],
@@ -1003,11 +1010,11 @@ class _PhotoPageState extends State<_PhotoPage>
                 ),
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 12, 20, 2),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 2),
               child: Text(
-                '删除动态视频',
-                style: TextStyle(
+                item.canDeleteLivePart ? '删除动态视频' : '删除照片',
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -1023,17 +1030,20 @@ class _PhotoPageState extends State<_PhotoPage>
               ),
             ),
             const Divider(height: 1, color: Colors.white12),
-            _DeleteOptionTile(
-              icon: Icons.movie_outlined,
-              title: '仅删除Live动态',
-              subtitle: '照片保留，动态视频移入回收站',
-              onTap: () =>
-                  Navigator.of(context).pop(_LiveDeleteAction.videoOnly),
-            ),
+            if (item.canDeleteLivePart)
+              _DeleteOptionTile(
+                icon: Icons.movie_outlined,
+                title: '仅删除Live动态',
+                subtitle: '照片保留，动态视频移入回收站',
+                onTap: () =>
+                    Navigator.of(context).pop(_LiveDeleteAction.videoOnly),
+              ),
             _DeleteOptionTile(
               icon: Icons.delete_outline,
               title: '全部删除',
-              subtitle: '照片和动态一起移入回收站',
+              subtitle: item.canDeleteLivePart
+                  ? '照片和动态一起移入回收站'
+                  : '当前格式暂不支持单独清理动态部分',
               destructive: true,
               onTap: () =>
                   Navigator.of(context).pop(_LiveDeleteAction.fullDelete),

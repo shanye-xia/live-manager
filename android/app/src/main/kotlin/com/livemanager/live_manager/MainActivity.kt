@@ -90,6 +90,7 @@ class MainActivity : FlutterActivity() {
             "scanAllPhotos" -> scanAsync(result)
             "scanSnapshot" -> scanSnapshotAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
+            "getMotionVideo" -> motionVideoAsync(call, result)
             "getExif" -> exifAsync(call, result)
             "shareImage" -> shareImage(call, result)
             "shareImages" -> shareImages(call, result)
@@ -322,6 +323,32 @@ class MainActivity : FlutterActivity() {
                 runOnUiThread { result.success(path) }
             } catch (e: Throwable) {
                 runOnUiThread { result.error("thumb_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun motionVideoAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageId = (call.argument<Number>("imageId"))?.toLong()
+            ?: return result.error("bad_args", "imageId 缺失", null)
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        val totalSize = (call.argument<Number>("totalSize"))?.toLong()
+            ?: return result.error("bad_args", "totalSize 缺失", null)
+        val videoSize = (call.argument<Number>("videoSize"))?.toLong()
+            ?: return result.error("bad_args", "videoSize 缺失", null)
+
+        Thread {
+            try {
+                val path = LivePhotoThumbnails.motionVideoFile(
+                    applicationContext,
+                    imageId,
+                    imageUri,
+                    totalSize,
+                    videoSize
+                )
+                runOnUiThread { result.success(path) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("motion_video_failed", e.message, null) }
             }
         }.start()
     }
