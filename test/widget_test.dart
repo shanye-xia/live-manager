@@ -203,7 +203,7 @@ void main() {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeRepository()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Live Manager'), findsOneWidget);
+    expect(find.text('LiveKit'), findsOneWidget);
     expect(find.text('全部照片'), findsOneWidget);
     expect(find.text('Live'), findsNWidgets(2));
     expect(find.text('2 张'), findsOneWidget);
@@ -234,7 +234,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // still on home screen, selection mode exited
-    expect(find.text('Live Manager'), findsOneWidget);
+    expect(find.text('LiveKit'), findsOneWidget);
     expect(find.text('取消'), findsNothing);
   });
 
@@ -431,7 +431,7 @@ void main() {
     await tester.pumpWidget(LiveManagerApp(repository: _FakeGridRepository()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Live Manager'), findsOneWidget);
+    expect(find.text('LiveKit'), findsOneWidget);
     await tester.fling(find.byType(PageView), const Offset(-400, 0), 1200);
     await tester.pumpAndSettle();
     expect(find.text('Live 动态'), findsOneWidget);

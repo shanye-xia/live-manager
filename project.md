@@ -1,10 +1,10 @@
-# Live Manager 产品说明
+# LiveKit 产品说明
 
 当前版本：`v0.1.0`
 
 ## 1. 产品定位
 
-Live Manager 是一个面向 Android Live Photo 的本地相册管理工具。
+LiveKit 是一个面向 Android Live Photo 的本地相册管理工具。
 
 v0.1 的核心目标是稳定支持 vivo 传统 Live Photo 双文件格式：
 
@@ -17,7 +17,7 @@ IMG_xxx.mp4
 
 ## 2. 不做什么
 
-Live Manager 当前不是：
+LiveKit 当前不是：
 
 - 完整相册替代品
 - 云相册

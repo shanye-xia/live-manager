@@ -264,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ? _SelectionSummary(viewModel: widget.viewModel)
                   : Text(
                       widget.title ??
-                          (widget.liveOnly ? 'Live 动态' : 'Live Manager'),
+                          (widget.liveOnly ? 'Live 动态' : 'LiveKit'),
                     ),
               centerTitle: selectionMode,
               actions: selectionMode

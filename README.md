@@ -1,8 +1,8 @@
-# Live Manager
+# LiveKit
 
-Live Manager 是一个本地运行的 Android Live Photo 管理工具。
+LiveKit 是一个本地运行的 Android Live Photo 管理工具。
 
-它解决的问题很直接：很多 Android 手机的 Live Photo 实际由“静态照片 + 动态视频”组成，但第三方相册经常把它们拆成一张 JPG 和一个 MP4，浏览和清理都不方便。Live Manager 会把它们重新识别成一张 Live Photo，让你像在系统相册里一样查看、播放、分享和管理动态部分。
+它解决的问题很直接：很多 Android 手机的 Live Photo 实际由“静态照片 + 动态视频”组成，但第三方相册经常把它们拆成一张 JPG 和一个 MP4，浏览和清理都不方便。LiveKit 会把它们重新识别成一张 Live Photo，让你像在系统相册里一样查看、播放、分享和管理动态部分。
 
 当前版本：`v0.1.0`
 
@@ -26,7 +26,7 @@ DCIM/Camera/IMG_20260813_120000.jpg
 DCIM/Camera/IMG_20260813_120000.mp4
 ```
 
-Live Manager 会把它们显示成一张 Live Photo，而不是两个独立文件。
+LiveKit 会把它们显示成一张 Live Photo，而不是两个独立文件。
 
 ## 现在能做什么
 
@@ -192,7 +192,7 @@ v0.1 对 vivo 双文件 Live Photo 的处理方式是：
 
 ## 安全和隐私
 
-Live Manager 全程本地运行：
+LiveKit 全程本地运行：
 
 - 不上传照片
 - 不需要账号

@@ -1,4 +1,4 @@
-# Live Manager 路线图
+# LiveKit 路线图
 
 当前发布版本：`v0.1.0`
 
