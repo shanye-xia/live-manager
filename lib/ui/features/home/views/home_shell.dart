@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../data/repositories/live_photo_repository.dart';
 import '../../trash/views/recycle_bin_screen.dart';
 import '../view_models/home_view_model.dart';
+import 'album_collections_screen.dart';
 import 'home_screen.dart';
 
 /// Bottom tab shell: All / Live / Trash.
@@ -32,11 +33,13 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _viewModel = HomeViewModel(repository: widget.repository)..load();
+    _viewModel = HomeViewModel(repository: widget.repository)
+      ..load(startup: true);
     _pageController = PageController();
     _pages = [
       HomeScreen(viewModel: _viewModel, liveOnly: false),
       HomeScreen(viewModel: _viewModel, liveOnly: true),
+      AlbumCollectionsScreen(viewModel: _viewModel),
       _RecycleBinGate(
         repository: widget.repository,
         onRestored: _viewModel.applyRestored,
@@ -79,7 +82,7 @@ class _HomeShellState extends State<HomeShell> {
           body: PageView.builder(
             controller: _pageController,
             physics: const _SnappyPageScrollPhysics(),
-            itemCount: 3,
+            itemCount: 4,
             allowImplicitScrolling: false,
             onPageChanged: _onPageChanged,
             itemBuilder: (context, index) =>
@@ -102,6 +105,11 @@ class _HomeShellState extends State<HomeShell> {
                         icon: Icon(Icons.motion_photos_on_outlined),
                         selectedIcon: Icon(Icons.motion_photos_on),
                         label: 'Live',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.collections_bookmark_outlined),
+                        selectedIcon: Icon(Icons.collections_bookmark),
+                        label: '合集',
                       ),
                       NavigationDestination(
                         icon: Icon(Icons.restore_from_trash_outlined),
@@ -131,11 +139,8 @@ class _SnappyPageScrollPhysics extends PageScrollPhysics {
   }
 
   @override
-  SpringDescription get spring => const SpringDescription(
-        mass: 0.5,
-        stiffness: 400,
-        damping: 28.28,
-      );
+  SpringDescription get spring =>
+      const SpringDescription(mass: 0.5, stiffness: 400, damping: 28.28);
 }
 
 /// 回收站页面的懒加载门：首次进入时才创建并加载，

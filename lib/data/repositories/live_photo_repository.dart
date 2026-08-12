@@ -17,6 +17,8 @@ abstract class LivePhotoRepository {
   /// 请求权限并扫描全部照片。
   Future<List<PhotoItem>> scan();
 
+  Future<List<PhotoItem>> cachedScanSnapshot();
+
   /// 获取（并缓存）某张照片的缩略图文件路径。
   Future<String> thumbnailPathFor(PhotoItem item);
 
@@ -54,6 +56,10 @@ abstract class LivePhotoRepository {
   /// 打开“所有文件访问”设置页。
   Future<void> openAllFilesAccessSettings();
 
+  /// 尝试用文件管理器打开照片所在目录。
+  /// 返回 folder / app / failed。
+  Future<String> openFolder(PhotoItem item);
+
   /// 回收站条目。
   Future<List<TrashEntry>> trashEntries();
 
@@ -73,7 +79,7 @@ abstract class LivePhotoRepository {
 /// 基于 MediaStore 原生桥接的实现。
 class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   const MediaStoreLivePhotoRepository({LivePhotoPlatformService? service})
-      : _service = service ?? const LivePhotoPlatformService();
+    : _service = service ?? const LivePhotoPlatformService();
 
   final LivePhotoPlatformService _service;
 
@@ -100,6 +106,12 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
       throw const PermissionDeniedException();
     }
     final maps = await _service.scanAllPhotos();
+    return maps.map(PhotoItem.fromJson).toList();
+  }
+
+  @override
+  Future<List<PhotoItem>> cachedScanSnapshot() async {
+    final maps = await _service.scanSnapshot();
     return maps.map(PhotoItem.fromJson).toList();
   }
 
@@ -173,6 +185,11 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   @override
   Future<void> openAllFilesAccessSettings() =>
       _service.openAllFilesAccessSettings();
+
+  @override
+  Future<String> openFolder(PhotoItem item) {
+    return _service.openFolder(item.relativePath);
+  }
 
   @override
   Future<List<TrashEntry>> trashEntries() async {

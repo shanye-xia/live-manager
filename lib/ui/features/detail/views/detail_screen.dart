@@ -88,8 +88,9 @@ class _DetailScreenState extends State<DetailScreen> {
                 key: ValueKey(item.imageId),
                 item: item,
                 repository: widget.repository,
-                thumbnailPath:
-                    index == widget.initialIndex ? widget.thumbnailPath : null,
+                thumbnailPath: index == widget.initialIndex
+                    ? widget.thumbnailPath
+                    : null,
                 thumbnailFuture: widget.thumbnailLoader(item),
                 uiVisible: _uiVisible,
                 positionText: '${index + 1} / ${_items.length}',
@@ -393,10 +394,12 @@ class _PhotoPageState extends State<_PhotoPage>
       onPointerCancel: _onPointerCancel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPressStart:
-            widget.item.isLive ? (_) => _viewModel.startPlayback() : null,
-        onLongPressEnd:
-            widget.item.isLive ? (_) => _viewModel.stopPlayback() : null,
+        onLongPressStart: widget.item.isLive
+            ? (_) => _viewModel.startPlayback()
+            : null,
+        onLongPressEnd: widget.item.isLive
+            ? (_) => _viewModel.stopPlayback()
+            : null,
         onLongPressCancel: widget.item.isLive ? _viewModel.stopPlayback : null,
         child: Stack(
           fit: StackFit.expand,
@@ -517,7 +520,8 @@ class _PhotoPageState extends State<_PhotoPage>
     // 放大后：photo_view 负责平移图片；滑到图片边界继续外推才翻页。
     if (_edgeMode) {
       _edgeDx += rawDx;
-      final backInside = (_edgeDir < 0 && rawDx > 0 && _edgeDx >= 0) ||
+      final backInside =
+          (_edgeDir < 0 && rawDx > 0 && _edgeDx >= 0) ||
           (_edgeDir > 0 && rawDx < 0 && _edgeDx <= 0);
       if (backInside) {
         if (kDebugMode) {
@@ -632,11 +636,13 @@ class _PhotoPageState extends State<_PhotoPage>
     _flingConsumed = true;
     final range = _hRange;
     final dx = _photoController.position.dx;
-    final nowAtEdge = range <= 0 ||
+    final nowAtEdge =
+        range <= 0 ||
         (velocityX < 0 && dx <= -range + 1.0) ||
         (velocityX > 0 && dx >= range - 1.0);
-    final startAtEdge =
-        velocityX < 0 ? _gestureStartLeftEdge : _gestureStartRightEdge;
+    final startAtEdge = velocityX < 0
+        ? _gestureStartLeftEdge
+        : _gestureStartRightEdge;
     if (startAtEdge && nowAtEdge) {
       if (kDebugMode) {
         debugPrint('[gesture] fling-edge-switch vx=$velocityX');
@@ -678,8 +684,10 @@ class _PhotoPageState extends State<_PhotoPage>
     // ????? t = 2*d/v0??????????????????
     // easeOutQuad ????????????? easeOutCubic ?????
     final speed = velocityX.abs().clamp(600.0, 4500.0).toDouble();
-    final ms =
-        (2 * distance / speed * 1000).round().clamp(150, 1000).toDouble();
+    final ms = (2 * distance / speed * 1000)
+        .round()
+        .clamp(150, 1000)
+        .toDouble();
     _stopInertia();
     _inertiaFrom = dx;
     _inertiaTo = target;
@@ -817,14 +825,6 @@ class _PhotoPageState extends State<_PhotoPage>
                           color: Colors.white70,
                         ),
                       ),
-                      IconButton(
-                        tooltip: item.isLive ? '删除' : '删除照片',
-                        onPressed: _confirmDelete,
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          color: Colors.redAccent,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -887,6 +887,13 @@ class _PhotoPageState extends State<_PhotoPage>
                           icon: Icons.edit_note_rounded,
                           label: '编辑',
                           onTap: _showEditSheet,
+                        ),
+                        const SizedBox(width: 16),
+                        _BottomActionButton(
+                          icon: Icons.delete_outline_rounded,
+                          label: '删除',
+                          color: Colors.redAccent,
+                          onTap: _confirmDelete,
                         ),
                       ],
                     ),
@@ -1244,14 +1251,28 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
   late final TextEditingController _datetime;
   late final TextEditingController _software;
   late final TextEditingController _description;
+  late final TextEditingController _artist;
+  late final TextEditingController _copyright;
+  late final TextEditingController _userComment;
   late final TextEditingController _latitude;
   late final TextEditingController _longitude;
+  late final TextEditingController _gpsAltitude;
   late final TextEditingController _focalLength;
+  late final TextEditingController _focalLength35mm;
   late final TextEditingController _iso;
   late final TextEditingController _exposureTime;
   late final TextEditingController _aperture;
   late final TextEditingController _exposureBias;
   late final TextEditingController _flash;
+  late final TextEditingController _lensMake;
+  late final TextEditingController _lensModel;
+  late final TextEditingController _bodySerialNumber;
+  late final TextEditingController _cameraOwnerName;
+  late final TextEditingController _orientation;
+  late final TextEditingController _whiteBalance;
+  late final TextEditingController _meteringMode;
+  late final TextEditingController _exposureProgram;
+  late final TextEditingController _digitalZoomRatio;
   bool _showAdvanced = false;
 
   @override
@@ -1264,18 +1285,49 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
       text: '${exif['datetimeOriginal'] ?? exif['datetime'] ?? ''}',
     );
     _software = TextEditingController(text: '${exif['software'] ?? ''}');
-    _description =
-        TextEditingController(text: '${exif['imageDescription'] ?? ''}');
+    _description = TextEditingController(
+      text: '${exif['imageDescription'] ?? ''}',
+    );
+    _artist = TextEditingController(text: '${exif['artist'] ?? ''}');
+    _copyright = TextEditingController(text: '${exif['copyright'] ?? ''}');
+    _userComment = TextEditingController(text: '${exif['userComment'] ?? ''}');
     _latitude = TextEditingController(text: '${exif['latitude'] ?? ''}');
     _longitude = TextEditingController(text: '${exif['longitude'] ?? ''}');
+    _gpsAltitude = TextEditingController(text: '${exif['gpsAltitude'] ?? ''}');
     _focalLength = TextEditingController(text: '${exif['focalLength'] ?? ''}');
+    _focalLength35mm = TextEditingController(
+      text: '${exif['focalLength35mm'] ?? ''}',
+    );
     _iso = TextEditingController(text: '${exif['iso'] ?? ''}');
-    _exposureTime =
-        TextEditingController(text: '${exif['exposureTime'] ?? ''}');
+    _exposureTime = TextEditingController(
+      text: '${exif['exposureTime'] ?? ''}',
+    );
     _aperture = TextEditingController(text: '${exif['aperture'] ?? ''}');
-    _exposureBias =
-        TextEditingController(text: '${exif['exposureBias'] ?? ''}');
+    _exposureBias = TextEditingController(
+      text: '${exif['exposureBias'] ?? ''}',
+    );
     _flash = TextEditingController(text: '${exif['flash'] ?? ''}');
+    _lensMake = TextEditingController(text: '${exif['lensMake'] ?? ''}');
+    _lensModel = TextEditingController(text: '${exif['lensModel'] ?? ''}');
+    _bodySerialNumber = TextEditingController(
+      text: '${exif['bodySerialNumber'] ?? ''}',
+    );
+    _cameraOwnerName = TextEditingController(
+      text: '${exif['cameraOwnerName'] ?? ''}',
+    );
+    _orientation = TextEditingController(text: '${exif['orientation'] ?? ''}');
+    _whiteBalance = TextEditingController(
+      text: '${exif['whiteBalance'] ?? ''}',
+    );
+    _meteringMode = TextEditingController(
+      text: '${exif['meteringMode'] ?? ''}',
+    );
+    _exposureProgram = TextEditingController(
+      text: '${exif['exposureProgram'] ?? ''}',
+    );
+    _digitalZoomRatio = TextEditingController(
+      text: '${exif['digitalZoomRatio'] ?? ''}',
+    );
   }
 
   @override
@@ -1285,14 +1337,28 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
     _datetime.dispose();
     _software.dispose();
     _description.dispose();
+    _artist.dispose();
+    _copyright.dispose();
+    _userComment.dispose();
     _latitude.dispose();
     _longitude.dispose();
+    _gpsAltitude.dispose();
     _focalLength.dispose();
+    _focalLength35mm.dispose();
     _iso.dispose();
     _exposureTime.dispose();
     _aperture.dispose();
     _exposureBias.dispose();
     _flash.dispose();
+    _lensMake.dispose();
+    _lensModel.dispose();
+    _bodySerialNumber.dispose();
+    _cameraOwnerName.dispose();
+    _orientation.dispose();
+    _whiteBalance.dispose();
+    _meteringMode.dispose();
+    _exposureProgram.dispose();
+    _digitalZoomRatio.dispose();
     super.dispose();
   }
 
@@ -1303,15 +1369,29 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
       'datetime': _datetime.text.trim(),
       'software': _software.text.trim(),
       'imageDescription': _description.text.trim(),
+      'artist': _artist.text.trim(),
+      'copyright': _copyright.text.trim(),
+      'userComment': _userComment.text.trim(),
       'latitude': _latitude.text.trim(),
       'longitude': _longitude.text.trim(),
       if (_showAdvanced) ...{
+        'gpsAltitude': _gpsAltitude.text.trim(),
         'focalLength': _focalLength.text.trim(),
+        'focalLength35mm': _focalLength35mm.text.trim(),
         'iso': _iso.text.trim(),
         'exposureTime': _exposureTime.text.trim(),
         'aperture': _aperture.text.trim(),
         'exposureBias': _exposureBias.text.trim(),
         'flash': _flash.text.trim(),
+        'lensMake': _lensMake.text.trim(),
+        'lensModel': _lensModel.text.trim(),
+        'bodySerialNumber': _bodySerialNumber.text.trim(),
+        'cameraOwnerName': _cameraOwnerName.text.trim(),
+        'orientation': _orientation.text.trim(),
+        'whiteBalance': _whiteBalance.text.trim(),
+        'meteringMode': _meteringMode.text.trim(),
+        'exposureProgram': _exposureProgram.text.trim(),
+        'digitalZoomRatio': _digitalZoomRatio.text.trim(),
       },
     });
   }
@@ -1322,15 +1402,10 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('编辑 EXIF'),
-        actions: [
-          TextButton(
-            onPressed: _save,
-            child: const Text('保存'),
-          ),
-        ],
+        actions: [TextButton(onPressed: _save, child: const Text('保存'))],
       ),
       body: ListView(
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           _ExifTextField(controller: _make, label: '相机品牌'),
@@ -1342,13 +1417,16 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
           ),
           _ExifTextField(controller: _software, label: '软件'),
           _ExifTextField(controller: _description, label: '描述'),
+          _ExifTextField(controller: _artist, label: '作者'),
+          _ExifTextField(controller: _copyright, label: '版权'),
+          _ExifTextField(controller: _userComment, label: '备注'),
           _ExifTextField(controller: _latitude, label: 'GPS 纬度'),
           _ExifTextField(controller: _longitude, label: 'GPS 经度'),
           const SizedBox(height: 4),
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('高级'),
-            subtitle: const Text('镜头、曝光参数、闪光灯'),
+            subtitle: const Text('镜头、曝光参数、机身和更多原始 EXIF'),
             trailing: Icon(
               _showAdvanced
                   ? Icons.expand_less_rounded
@@ -1357,12 +1435,23 @@ class _ExifEditorPageState extends State<_ExifEditorPage> {
             onTap: () => setState(() => _showAdvanced = !_showAdvanced),
           ),
           if (_showAdvanced) ...[
+            _ExifTextField(controller: _gpsAltitude, label: 'GPS 海拔'),
             _ExifTextField(controller: _focalLength, label: '焦距'),
+            _ExifTextField(controller: _focalLength35mm, label: '35mm 等效焦距'),
             _ExifTextField(controller: _iso, label: 'ISO'),
             _ExifTextField(controller: _exposureTime, label: '快门时间'),
             _ExifTextField(controller: _aperture, label: '光圈'),
             _ExifTextField(controller: _exposureBias, label: '曝光补偿'),
             _ExifTextField(controller: _flash, label: '闪光灯'),
+            _ExifTextField(controller: _lensMake, label: '镜头品牌'),
+            _ExifTextField(controller: _lensModel, label: '镜头型号'),
+            _ExifTextField(controller: _bodySerialNumber, label: '机身序列号'),
+            _ExifTextField(controller: _cameraOwnerName, label: '相机所有者'),
+            _ExifTextField(controller: _orientation, label: '方向'),
+            _ExifTextField(controller: _whiteBalance, label: '白平衡'),
+            _ExifTextField(controller: _meteringMode, label: '测光模式'),
+            _ExifTextField(controller: _exposureProgram, label: '曝光程序'),
+            _ExifTextField(controller: _digitalZoomRatio, label: '数码变焦'),
           ],
         ],
       ),
@@ -1552,11 +1641,13 @@ class _BottomActionButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.color = Colors.white,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -1568,12 +1659,12 @@ class _BottomActionButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white, size: 22),
+            Icon(icon, color: color, size: 22),
             const SizedBox(height: 3),
             Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: color,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
@@ -1596,6 +1687,7 @@ class _InfoSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final rows = <(String, String)>[
       ('文件名', item.displayName),
+      ('路径', _displayPath(item)),
       ('拍摄时间', formatDateTime(item.createTime)),
       ('照片', formatBytes(item.imageSize)),
       if (item.isLive) ('动态', formatBytes(item.videoSize ?? 0)),
@@ -1646,12 +1738,15 @@ class _InfoSheet extends StatelessWidget {
                           _InfoRow(
                             label: label,
                             value: value,
+                            onTap: label == '路径'
+                                ? () => _openFolder(context)
+                                : null,
                             extraValue: label == 'GPS' ? gpsNumbers : null,
                             expanded: label == 'GPS' && showGpsNumbers,
                             onToggle: label == 'GPS' && gpsNumbers != null
                                 ? () => setSheetState(
-                                      () => showGpsNumbers = !showGpsNumbers,
-                                    )
+                                    () => showGpsNumbers = !showGpsNumbers,
+                                  )
                                 : null,
                           ),
                       ],
@@ -1664,6 +1759,29 @@ class _InfoSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _displayPath(PhotoItem item) {
+    final relativePath = item.relativePath.trim();
+    if (relativePath.isEmpty) return item.displayName;
+    return '$relativePath${item.displayName}';
+  }
+
+  Future<void> _openFolder(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status = await viewModel.repository.openFolder(item);
+      if (!context.mounted) return;
+      final message = switch (status) {
+        'folder' => '已尝试打开所在位置',
+        'app' => '文件管理器未开放定位入口，已打开文件管理器首页',
+        _ => '无法打开文件管理器',
+      };
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('无法打开文件管理器')));
+    }
   }
 
   String? _gpsNumbers(Map<String, dynamic>? exif) {
@@ -1684,6 +1802,7 @@ class _InfoRow extends StatelessWidget {
     required this.value,
     this.extraValue,
     this.expanded = false,
+    this.onTap,
     this.onToggle,
   });
 
@@ -1691,6 +1810,7 @@ class _InfoRow extends StatelessWidget {
   final String value;
   final String? extraValue;
   final bool expanded;
+  final VoidCallback? onTap;
   final VoidCallback? onToggle;
 
   @override
@@ -1702,10 +1822,7 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 76,
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.white38),
-            ),
+            child: Text(label, style: const TextStyle(color: Colors.white38)),
           ),
           Expanded(
             child: Column(
@@ -1716,7 +1833,11 @@ class _InfoRow extends StatelessWidget {
                   onLongPress: () => _copy(context, value),
                   child: Text(
                     value,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(
+                      color: onTap == null
+                          ? Colors.white
+                          : Colors.lightBlueAccent,
+                    ),
                   ),
                 ),
                 if (expanded && extraValue != null) ...[
@@ -1744,8 +1865,8 @@ class _InfoRow extends StatelessWidget {
         ],
       ),
     );
-    if (onToggle != null) {
-      return InkWell(onTap: onToggle, child: content);
+    if (onToggle != null || onTap != null) {
+      return InkWell(onTap: onToggle ?? onTap, child: content);
     }
     return content;
   }

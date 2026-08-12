@@ -41,6 +41,14 @@ class LivePhotoPlatformService {
         .toList();
   }
 
+  /// 读取上次扫描留下的轻量照片列表快照；不请求权限、不读取照片文件。
+  Future<List<Map<String, dynamic>>> scanSnapshot() async {
+    final result = await _channel.invokeListMethod<dynamic>('scanSnapshot');
+    return (result ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
   /// 获取（并缓存）缩略图，返回本地缓存文件路径。
   Future<String> getThumbnail({
     required int imageId,
@@ -65,44 +73,28 @@ class LivePhotoPlatformService {
 
   /// 调用系统分享面板分享图片。
   Future<void> shareImage(String imageUri) async {
-    await _channel.invokeMethod<void>('shareImage', {
-      'imageUri': imageUri,
-    });
+    await _channel.invokeMethod<void>('shareImage', {'imageUri': imageUri});
   }
 
   /// 调用系统分享面板分享多张图片。
   Future<void> shareImages(List<String> imageUris) async {
-    await _channel.invokeMethod<void>('shareImages', {
-      'imageUris': imageUris,
-    });
+    await _channel.invokeMethod<void>('shareImages', {'imageUris': imageUris});
   }
 
   /// 更新 EXIF 字段。传空字符串会清空对应字段。
-  Future<bool> updateExif(
-    String imageUri,
-    Map<String, String> values,
-  ) async {
+  Future<bool> updateExif(String imageUri, Map<String, String> values) async {
     final result = await _channel.invokeMapMethod<String, dynamic>(
       'updateExif',
-      {
-        'imageUri': imageUri,
-        'values': values,
-      },
+      {'imageUri': imageUri, 'values': values},
     );
     return result?['ok'] == true;
   }
 
   /// 清除 GPS、设备、软件、拍摄时间等敏感 EXIF。
-  Future<bool> clearSensitiveExif(
-    String imageUri,
-    List<String> groups,
-  ) async {
+  Future<bool> clearSensitiveExif(String imageUri, List<String> groups) async {
     final result = await _channel.invokeMapMethod<String, dynamic>(
       'clearSensitiveExif',
-      {
-        'imageUri': imageUri,
-        'groups': groups,
-      },
+      {'imageUri': imageUri, 'groups': groups},
     );
     return result?['ok'] == true;
   }
@@ -117,16 +109,16 @@ class LivePhotoPlatformService {
     int? imageId,
     int? videoId,
   }) async {
-    final result =
-        await _channel.invokeMapMethod<String, dynamic>('moveToTrash', {
-      'uri': uri,
-      'fileName': fileName,
-      'relativePath': relativePath,
-      'mediaType': mediaType,
-      'dateTaken': dateTaken,
-      'imageId': imageId,
-      'videoId': videoId,
-    });
+    final result = await _channel
+        .invokeMapMethod<String, dynamic>('moveToTrash', {
+          'uri': uri,
+          'fileName': fileName,
+          'relativePath': relativePath,
+          'mediaType': mediaType,
+          'dateTaken': dateTaken,
+          'imageId': imageId,
+          'videoId': videoId,
+        });
     return result ?? const {};
   }
 
@@ -138,6 +130,14 @@ class LivePhotoPlatformService {
   /// 打开“所有文件访问”设置页。
   Future<void> openAllFilesAccessSettings() async {
     await _channel.invokeMethod<void>('openAllFilesAccessSettings');
+  }
+
+  /// 尝试用系统文件管理器打开相对目录。
+  Future<String> openFolder(String relativePath) async {
+    final result = await _channel.invokeMethod<String>('openFolder', {
+      'relativePath': relativePath,
+    });
+    return result ?? 'failed';
   }
 
   /// 回收站条目列表。
@@ -176,7 +176,7 @@ class LivePhotoPlatformService {
   /// 原生事件流（权限变化、删除结果等）。
   Stream<Map<String, dynamic>> events() {
     return _events.receiveBroadcastStream().map(
-          (e) => Map<String, dynamic>.from(e as Map),
-        );
+      (e) => Map<String, dynamic>.from(e as Map),
+    );
   }
 }

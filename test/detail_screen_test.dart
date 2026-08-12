@@ -19,6 +19,9 @@ class _FakeRepository implements LivePhotoRepository {
   Future<List<PhotoItem>> scan() async => const [];
 
   @override
+  Future<List<PhotoItem>> cachedScanSnapshot() async => const [];
+
+  @override
   Future<String> thumbnailPathFor(PhotoItem item) async => imagePath;
 
   @override
@@ -59,6 +62,9 @@ class _FakeRepository implements LivePhotoRepository {
 
   @override
   Future<void> openAllFilesAccessSettings() async {}
+
+  @override
+  Future<String> openFolder(PhotoItem item) async => 'folder';
 
   @override
   Future<List<TrashEntry>> trashEntries() async => const [];
