@@ -17,12 +17,14 @@ class DetailViewModel extends ChangeNotifier {
     required this.repository,
     this.thumbnailPath,
     this.thumbnailFuture,
+    this.prefetchedFullPath,
   });
 
   final PhotoItem item;
   final LivePhotoRepository repository;
   final String? thumbnailPath;
   final Future<String>? thumbnailFuture;
+  final String? prefetchedFullPath;
 
   bool _loading = true;
   String? _imagePath;
@@ -46,6 +48,16 @@ class DetailViewModel extends ChangeNotifier {
   bool get fullImageReady => _fullImageReady;
   String? get fullImageError => _fullImageError;
   String? get videoError => _videoError;
+
+  void usePrefetchedFullPath(String? path) {
+    if (_fullImageReady || path == null || path.isEmpty) {
+      return;
+    }
+    _imagePath = path;
+    _fullImageReady = true;
+    _loading = false;
+    notifyListeners();
+  }
 
   Future<void> init() async {
     // 缩略图与原图并行加载：谁先就绪先显示谁，避免互相阻塞
@@ -74,14 +86,16 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   Future<void> _loadFullContent() async {
-    String? fullPath;
+    String? fullPath = prefetchedFullPath;
     String? videoPath;
     Map<String, dynamic>? exif;
-    try {
-      fullPath = await repository.fullImagePathFor(item);
-    } catch (e) {
-      _error = e.toString();
-      _fullImageError = e.toString();
+    if (fullPath == null || fullPath.isEmpty) {
+      try {
+        fullPath = await repository.fullImagePathFor(item);
+      } catch (e) {
+        _error = e.toString();
+        _fullImageError = e.toString();
+      }
     }
 
     // Show original as soon as its path is ready; do not wait for video/EXIF.

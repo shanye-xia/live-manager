@@ -52,6 +52,7 @@ class _DetailScreenState extends State<DetailScreen> {
   double _pageDragBase = 0;
   double _lastPageDragDx = 0;
   final Map<int, Future<void>> _prefetchJobs = {};
+  final Map<int, String> _prefetchedFullPaths = {};
   Future<void> _prefetchQueue = Future<void>.value();
 
   @override
@@ -92,6 +93,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     ? widget.thumbnailPath
                     : null,
                 thumbnailFuture: widget.thumbnailLoader(item),
+                prefetchedFullPath: _prefetchedFullPaths[item.imageId],
                 uiVisible: _uiVisible,
                 positionText: '${index + 1} / ${_items.length}',
                 onToggleUi: () => setState(() => _uiVisible = !_uiVisible),
@@ -247,6 +249,8 @@ class _DetailScreenState extends State<DetailScreen> {
     try {
       final path = await widget.repository.fullImagePathFor(item);
       if (!mounted || path.isEmpty) return;
+      _prefetchedFullPaths[item.imageId] = path;
+      setState(() {});
       final width = MediaQuery.sizeOf(context).width;
       final targetWidth = (width * 2).round().clamp(1200, 2400);
       await precacheImage(
@@ -266,6 +270,7 @@ class _PhotoPage extends StatefulWidget {
     required this.repository,
     this.thumbnailPath,
     this.thumbnailFuture,
+    this.prefetchedFullPath,
     required this.uiVisible,
     required this.positionText,
     required this.onToggleUi,
@@ -280,6 +285,7 @@ class _PhotoPage extends StatefulWidget {
   final LivePhotoRepository repository;
   final String? thumbnailPath;
   final Future<String>? thumbnailFuture;
+  final String? prefetchedFullPath;
   final bool uiVisible;
   final String positionText;
   final VoidCallback onToggleUi;
@@ -342,7 +348,16 @@ class _PhotoPageState extends State<_PhotoPage>
       repository: widget.repository,
       thumbnailPath: widget.thumbnailPath,
       thumbnailFuture: widget.thumbnailFuture,
+      prefetchedFullPath: widget.prefetchedFullPath,
     )..init();
+  }
+
+  @override
+  void didUpdateWidget(_PhotoPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.prefetchedFullPath != widget.prefetchedFullPath) {
+      _viewModel.usePrefetchedFullPath(widget.prefetchedFullPath);
+    }
   }
 
   @override

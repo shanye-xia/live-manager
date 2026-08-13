@@ -22,6 +22,15 @@ object LivePhotoThumbnails {
     private const val MAX_FULL_BYTES = 400L * 1024 * 1024
     private const val MAX_VIDEO_BYTES = 400L * 1024 * 1024
 
+    fun cachedPath(context: Context, imageId: Long, sizePx: Int): String? {
+        val cacheFile = File(File(context.cacheDir, "thumbs"), "${imageId}_${sizePx}.jpg")
+        return if (cacheFile.exists() && cacheFile.length() > 0) {
+            cacheFile.absolutePath
+        } else {
+            null
+        }
+    }
+
     fun getOrCreate(context: Context, imageId: Long, imageUri: String, sizePx: Int): String {
         val dir = File(context.cacheDir, "thumbs").apply { mkdirs() }
         val cacheFile = File(dir, "${imageId}_${sizePx}.jpg")

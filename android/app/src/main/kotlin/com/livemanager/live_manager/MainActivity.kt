@@ -110,6 +110,7 @@ class MainActivity : FlutterActivity() {
             "permissionStatus" -> result.success(permissionStatus())
             "scanAllPhotos" -> scanAsync(result)
             "scanSnapshot" -> scanSnapshotAsync(result)
+            "cachedThumbnailPath" -> cachedThumbnailPath(call, result)
             "getThumbnail" -> thumbnailAsync(call, result)
             "getMotionVideo" -> motionVideoAsync(call, result)
             "detectMotionPhoto" -> detectMotionPhotoAsync(call, result)
@@ -333,6 +334,13 @@ class MainActivity : FlutterActivity() {
                 result.success(items)
             }
         }.start()
+    }
+
+    private fun cachedThumbnailPath(call: MethodCall, result: MethodChannel.Result) {
+        val imageId = (call.argument<Number>("imageId"))?.toLong()
+            ?: return result.error("bad_args", "imageId 缂哄け", null)
+        val size = (call.argument<Number>("size") ?: 512).toInt()
+        result.success(LivePhotoThumbnails.cachedPath(applicationContext, imageId, size))
     }
 
     private fun thumbnailAsync(call: MethodCall, result: MethodChannel.Result) {

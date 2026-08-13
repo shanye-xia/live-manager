@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../domain/models/photo_item.dart';
 import '../../../core/exif_clear_options.dart';
@@ -31,6 +32,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
+  static const _platform = MethodChannel('com.livemanager/live_photo');
+
   final ScrollController _scrollController = ScrollController();
   bool _showTopButton = false;
   double _lastScrollPixels = 0;
@@ -39,8 +42,8 @@ class _HomeScreenState extends State<HomeScreen>
   double _summaryHeight = 56.0;
   Timer? _summaryTimer;
   bool _animatingToTop = false;
-  bool _showScrollDate = false;
-  DateTime? _scrollDate;
+  final ValueNotifier<_ScrollDateOverlayState> _scrollDateOverlay =
+      ValueNotifier(const _ScrollDateOverlayState(visible: false));
 
   // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
   double? _sweepRow0Top;
@@ -123,6 +126,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   String _monthTitle(DateTime time) => '${time.year}年${time.month}月';
 
+  Future<String?> _cachedThumbnailPathFor(PhotoItem item) {
+    return _platform.invokeMethod<String>('cachedThumbnailPath', {
+      'imageId': item.imageId,
+      'size': 512,
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -143,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen>
     _stopSweepTimer();
     _topButtonTimer?.cancel();
     _scrollDateTimer?.cancel();
+    _scrollDateOverlay.dispose();
     _summaryTimer?.cancel();
     _scrollController.removeListener(_onGridScroll);
     _scrollController.dispose();
@@ -182,19 +193,25 @@ class _HomeScreenState extends State<HomeScreen>
     final normalized = date == null
         ? null
         : DateTime(date.year, date.month, date.day);
+    final current = _scrollDateOverlay.value;
     final changed =
-        _scrollDate?.year != normalized?.year ||
-        _scrollDate?.month != normalized?.month ||
-        _scrollDate?.day != normalized?.day;
-    if (!_showScrollDate || changed) {
-      setState(() {
-        _showScrollDate = true;
-        _scrollDate = normalized;
-      });
+        current.date?.year != normalized?.year ||
+        current.date?.month != normalized?.month ||
+        current.date?.day != normalized?.day;
+    if (!current.visible || changed) {
+      _scrollDateOverlay.value = _ScrollDateOverlayState(
+        visible: true,
+        date: normalized,
+      );
     }
     _scrollDateTimer = Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
-      setState(() => _showScrollDate = false);
+      final current = _scrollDateOverlay.value;
+      if (!current.visible) return;
+      _scrollDateOverlay.value = _ScrollDateOverlayState(
+        visible: false,
+        date: current.date,
+      );
     });
   }
 
@@ -321,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen>
                   final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
                   return CustomScrollView(
                     controller: _scrollController,
-                    scrollCacheExtent: const ScrollCacheExtent.viewport(1.2),
+                    scrollCacheExtent: const ScrollCacheExtent.viewport(1.0),
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
                       SliverToBoxAdapter(
@@ -363,6 +380,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 item: item,
                                 initialThumbnailPath: widget.viewModel
                                     .cachedThumbnailPathFor(item),
+                                cachedThumbnailLoader: _cachedThumbnailPathFor,
                                 thumbnailLoader:
                                     widget.viewModel.thumbnailPathFor,
                                 onThumbnailError: () =>
@@ -418,9 +436,12 @@ class _HomeScreenState extends State<HomeScreen>
             Positioned(
               top: 12,
               left: 12,
-              child: _TopScrollDateIndicator(
-                visible: _showScrollDate,
-                date: _scrollDate,
+              child: ValueListenableBuilder<_ScrollDateOverlayState>(
+                valueListenable: _scrollDateOverlay,
+                builder: (context, value, _) => _TopScrollDateIndicator(
+                  visible: value.visible,
+                  date: value.date,
+                ),
               ),
             ),
             Positioned(
@@ -974,6 +995,13 @@ class _TimelineGroup {
   final int startIndex;
 }
 
+class _ScrollDateOverlayState {
+  const _ScrollDateOverlayState({required this.visible, this.date});
+
+  final bool visible;
+  final DateTime? date;
+}
+
 class _TimelineHeader extends StatelessWidget {
   const _TimelineHeader({required this.title, required this.count});
 
@@ -1467,6 +1495,7 @@ class _PhotoTile extends StatefulWidget {
     required this.index,
     required this.item,
     required this.initialThumbnailPath,
+    required this.cachedThumbnailLoader,
     required this.thumbnailLoader,
     required this.onThumbnailError,
     required this.selectionMode,
@@ -1479,6 +1508,7 @@ class _PhotoTile extends StatefulWidget {
   final int index;
   final PhotoItem item;
   final String? initialThumbnailPath;
+  final Future<String?> Function(PhotoItem item) cachedThumbnailLoader;
   final Future<String> Function(PhotoItem item) thumbnailLoader;
   final VoidCallback onThumbnailError;
   final bool selectionMode;
@@ -1498,11 +1528,12 @@ class _PhotoTile extends StatefulWidget {
 }
 
 class _PhotoTileState extends State<_PhotoTile> {
-  static const _loadDelay = Duration(milliseconds: 48);
+  static const _loadDelay = Duration(milliseconds: 80);
 
   Future<String>? _thumbnailFuture;
   String? _lastThumbnailPath;
   Timer? _loadTimer;
+  int _loadToken = 0;
   bool _thumbnailRetryScheduled = false;
 
   @override
@@ -1510,7 +1541,7 @@ class _PhotoTileState extends State<_PhotoTile> {
     super.initState();
     _lastThumbnailPath = widget.initialThumbnailPath;
     if (_lastThumbnailPath == null || _lastThumbnailPath!.isEmpty) {
-      _scheduleThumbnailLoad();
+      _resolveCachedOrScheduleLoad();
     }
   }
 
@@ -1521,9 +1552,10 @@ class _PhotoTileState extends State<_PhotoTile> {
       _loadTimer?.cancel();
       _thumbnailFuture = null;
       _thumbnailRetryScheduled = false;
+      _loadToken++;
       _lastThumbnailPath = widget.initialThumbnailPath;
       if (_lastThumbnailPath == null || _lastThumbnailPath!.isEmpty) {
-        _scheduleThumbnailLoad();
+        _resolveCachedOrScheduleLoad();
       }
     } else if ((_lastThumbnailPath == null || _lastThumbnailPath!.isEmpty) &&
         widget.initialThumbnailPath != null &&
@@ -1536,16 +1568,30 @@ class _PhotoTileState extends State<_PhotoTile> {
 
   @override
   void dispose() {
+    _loadToken++;
     _loadTimer?.cancel();
     super.dispose();
   }
 
-  void _scheduleThumbnailLoad() {
+  Future<void> _resolveCachedOrScheduleLoad() async {
+    final token = ++_loadToken;
+    final path = await widget.cachedThumbnailLoader(widget.item);
+    if (!mounted || token != _loadToken) {
+      return;
+    }
+    if (path != null && path.isNotEmpty) {
+      setState(() => _lastThumbnailPath = path);
+      return;
+    }
+    _scheduleThumbnailLoad(token);
+  }
+
+  void _scheduleThumbnailLoad(int token) {
     if (_thumbnailFuture != null || _loadTimer?.isActive == true) {
       return;
     }
     _loadTimer = Timer(_loadDelay, () {
-      if (!mounted || _thumbnailFuture != null) {
+      if (!mounted || token != _loadToken || _thumbnailFuture != null) {
         return;
       }
       setState(() {
