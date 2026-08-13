@@ -36,12 +36,7 @@ class PhotoItem {
   final bool canPlayLiveVideo;
   final bool canDeleteLivePart;
 
-  bool get isGoogleMotionPhoto =>
-      liveProtocol == 'GOOGLE_MOTION_PHOTO' ||
-      (isLive &&
-          videoUri == null &&
-          videoSize != null &&
-          displayName.toLowerCase().contains('.mp.'));
+  bool get isGoogleMotionPhoto => liveProtocol == 'GOOGLE_MOTION_PHOTO';
 
   int get totalSize => imageSize + (videoSize ?? 0);
 

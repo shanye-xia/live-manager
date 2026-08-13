@@ -79,7 +79,26 @@ class LivePhotoPlatformService {
     return path ?? '';
   }
 
+  Future<Map<String, dynamic>> detectMotionPhoto(String imageUri) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'detectMotionPhoto',
+      {'imageUri': imageUri},
+    );
+    return result ?? const {};
+  }
+
   /// 读取 JPG 的 EXIF 信息（只读）。
+  Future<Map<String, dynamic>> stripMotionVideo({
+    required String imageUri,
+    required int videoSize,
+  }) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'stripMotionVideo',
+      {'imageUri': imageUri, 'videoSize': videoSize},
+    );
+    return result ?? const {'ok': false, 'status': 'failed'};
+  }
+
   Future<Map<String, dynamic>> getExif(String imageUri) async {
     final result = await _channel.invokeMapMethod<String, dynamic>('getExif', {
       'imageUri': imageUri,

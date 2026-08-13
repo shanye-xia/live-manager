@@ -8,6 +8,7 @@ class _FakeRepository implements LivePhotoRepository {
   _FakeRepository();
 
   int deleteCalls = 0;
+  final List<bool> deleteVideoCalls = [];
   bool failImageDelete = false;
 
   final List<PhotoItem> _items = [
@@ -91,6 +92,7 @@ class _FakeRepository implements LivePhotoRepository {
     required bool deleteVideo,
   }) async {
     deleteCalls++;
+    deleteVideoCalls.add(deleteVideo);
     if (!deleteVideo && failImageDelete) {
       return const {'status': 'failed'};
     }
@@ -245,6 +247,70 @@ void main() {
       expect(vm.selectedCount, 0);
       expect(vm.selectedLiveCount, 0);
     });
+
+    test('single-file Motion Photo strips video and updates size', () async {
+      final fake = _FakeRepository();
+      final motion = PhotoItem(
+        imageId: 9,
+        imageUri: 'content://media/external/images/media/9',
+        displayName: 'M.MP.jpg',
+        createTime: DateTime(2026, 8, 7, 10),
+        imageSize: 10000,
+        relativePath: 'DCIM/Camera/',
+        videoSize: 3000,
+        isLive: true,
+        liveProtocol: 'GOOGLE_MOTION_PHOTO',
+        canPlayLiveVideo: true,
+        canDeleteLivePart: true,
+      );
+      fake._items
+        ..clear()
+        ..add(motion);
+      final vm = HomeViewModel(repository: fake);
+      await vm.load();
+      vm.enterSelectionMode(vm.items.first);
+
+      final result = await vm.deleteLiveParts();
+
+      expect(result.videoOnly, 1);
+      expect(fake.deleteVideoCalls, [true]);
+      expect(vm.items.single.isLive, isFalse);
+      expect(vm.items.single.liveProtocol, 'NONE');
+      expect(vm.items.single.imageSize, 7000);
+      expect(vm.items.single.videoSize, isNull);
+    });
+
+    test(
+      'full delete of single-file Motion Photo does not strip first',
+      () async {
+        final fake = _FakeRepository();
+        final motion = PhotoItem(
+          imageId: 9,
+          imageUri: 'content://media/external/images/media/9',
+          displayName: 'M.MP.jpg',
+          createTime: DateTime(2026, 8, 7, 10),
+          imageSize: 10000,
+          relativePath: 'DCIM/Camera/',
+          videoSize: 3000,
+          isLive: true,
+          liveProtocol: 'GOOGLE_MOTION_PHOTO',
+          canPlayLiveVideo: true,
+          canDeleteLivePart: true,
+        );
+        fake._items
+          ..clear()
+          ..add(motion);
+        final vm = HomeViewModel(repository: fake);
+        await vm.load();
+        vm.enterSelectionMode(vm.items.first);
+
+        final result = await vm.deleteSelected();
+
+        expect(result.deleted, 1);
+        expect(fake.deleteVideoCalls, [false]);
+        expect(vm.items, isEmpty);
+      },
+    );
   });
 
   group('HomeViewModel 回收站即时刷新', () {

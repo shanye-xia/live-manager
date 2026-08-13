@@ -27,6 +27,9 @@ class MainActivity : FlutterActivity() {
     private var pendingPermissionResult: MethodChannel.Result? = null
     private var pendingExifResult: MethodChannel.Result? = null
     private var pendingExifOperation: PendingExifOperation? = null
+    private var pendingMotionStripResult: MethodChannel.Result? = null
+    private var pendingMotionStripImageUri: String? = null
+    private var pendingMotionStripVideoSize: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +42,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
         private const val REQUEST_EXIF_WRITE = 1002
+        private const val REQUEST_MOTION_STRIP_WRITE = 1003
     }
 
     private sealed class PendingExifOperation {
@@ -108,6 +112,8 @@ class MainActivity : FlutterActivity() {
             "scanSnapshot" -> scanSnapshotAsync(result)
             "getThumbnail" -> thumbnailAsync(call, result)
             "getMotionVideo" -> motionVideoAsync(call, result)
+            "detectMotionPhoto" -> detectMotionPhotoAsync(call, result)
+            "stripMotionVideo" -> stripMotionVideoAsync(call, result)
             "getExif" -> exifAsync(call, result)
             "shareImage" -> shareImage(call, result)
             "shareImages" -> shareImages(call, result)
@@ -353,6 +359,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_MOTION_STRIP_WRITE) {
+            handleMotionStripWriteResult(resultCode)
+            return
+        }
         if (requestCode != REQUEST_EXIF_WRITE) return
 
         val result = pendingExifResult
@@ -419,6 +429,113 @@ class MainActivity : FlutterActivity() {
             }
         }.start()
     }
+
+    private fun detectMotionPhotoAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        Thread {
+            try {
+                val detection = MotionPhotoProbe.detect(applicationContext, imageUri)
+                runOnUiThread { result.success(detection) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("motion_detect_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun stripMotionVideoAsync(call: MethodCall, result: MethodChannel.Result) {
+        val imageUri = call.argument<String>("imageUri")
+            ?: return result.error("bad_args", "imageUri 缺失", null)
+        val videoSize = (call.argument<Number>("videoSize"))?.toLong()
+            ?: return result.error("bad_args", "videoSize 缺失", null)
+
+        Thread {
+            val stripResult = MotionPhotoStripper.strip(
+                applicationContext,
+                imageUri,
+                videoSize
+            )
+            runOnUiThread {
+                if (stripResult.status == "need_permission") {
+                    requestMotionStripWritePermission(imageUri, videoSize, result)
+                } else {
+                    result.success(stripResult.toMap())
+                }
+            }
+        }.start()
+    }
+
+    private fun requestMotionStripWritePermission(
+        imageUri: String,
+        videoSize: Long,
+        result: MethodChannel.Result
+    ) {
+        if (pendingMotionStripResult != null) {
+            result.success(mapOf("ok" to false, "status" to "busy"))
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            result.success(mapOf("ok" to false, "status" to "need_permission"))
+            return
+        }
+        try {
+            val uri = Uri.parse(imageUri)
+            val intentSender = MediaStore.createWriteRequest(
+                contentResolver,
+                listOf(uri)
+            ).intentSender
+            pendingMotionStripResult = result
+            pendingMotionStripImageUri = imageUri
+            pendingMotionStripVideoSize = videoSize
+            startIntentSenderForResult(
+                intentSender,
+                REQUEST_MOTION_STRIP_WRITE,
+                null,
+                0,
+                0,
+                0,
+                null
+            )
+        } catch (e: Throwable) {
+            result.error("motion_strip_permission_failed", e.message, null)
+        }
+    }
+
+    private fun handleMotionStripWriteResult(resultCode: Int) {
+        val result = pendingMotionStripResult
+        val imageUri = pendingMotionStripImageUri
+        val videoSize = pendingMotionStripVideoSize
+        pendingMotionStripResult = null
+        pendingMotionStripImageUri = null
+        pendingMotionStripVideoSize = 0L
+
+        if (result == null || imageUri == null) return
+        if (resultCode != Activity.RESULT_OK) {
+            result.success(mapOf("ok" to false, "status" to "need_permission"))
+            return
+        }
+
+        Thread {
+            try {
+                val stripResult = MotionPhotoStripper.strip(
+                    applicationContext,
+                    imageUri,
+                    videoSize
+                )
+                runOnUiThread { result.success(stripResult.toMap()) }
+            } catch (e: Throwable) {
+                runOnUiThread { result.error("motion_strip_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun MotionPhotoStripper.Result.toMap(): Map<String, Any> = mapOf(
+        "ok" to ok,
+        "status" to status,
+        "originalSize" to originalSize,
+        "strippedSize" to strippedSize,
+        "message" to message
+    )
 
     private fun exifAsync(call: MethodCall, result: MethodChannel.Result) {
         val imageUri = call.argument<String>("imageUri")

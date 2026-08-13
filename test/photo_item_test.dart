@@ -70,7 +70,7 @@ void main() {
         'isLive': true,
         'liveProtocol': 'GOOGLE_MOTION_PHOTO',
         'canPlayLiveVideo': true,
-        'canDeleteLivePart': false,
+        'canDeleteLivePart': true,
       });
 
       expect(item.isLive, isTrue);
@@ -78,7 +78,7 @@ void main() {
       expect(item.videoUri, isNull);
       expect(item.videoSize, 3000);
       expect(item.canPlayLiveVideo, isTrue);
-      expect(item.canDeleteLivePart, isFalse);
+      expect(item.canDeleteLivePart, isTrue);
       expect(item.totalSize, 13000);
     });
 

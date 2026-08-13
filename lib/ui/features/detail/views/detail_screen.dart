@@ -178,6 +178,15 @@ class _DetailScreenState extends State<DetailScreen> {
           videoUri: null,
           videoSize: null,
           videoDurationMs: null,
+          imageSize: item.isGoogleMotionPhoto
+              ? (item.imageSize - (item.videoSize ?? 0)).clamp(
+                  0,
+                  item.imageSize,
+                )
+              : item.imageSize,
+          liveProtocol: 'NONE',
+          canPlayLiveVideo: false,
+          canDeleteLivePart: false,
         );
       } else {
         _items.removeAt(index);
@@ -951,9 +960,11 @@ class _PhotoPageState extends State<_PhotoPage>
       switch (outcome) {
         case DeleteOutcome.done:
           _showSnack('已删除');
+          if (videoOnly) await _viewModel.markLivePartDeleted();
           widget.onDeleted(videoOnly);
         case DeleteOutcome.videoOnly:
           _showSnack('动态已删除，照片删除失败，已保留为普通照片');
+          await _viewModel.markLivePartDeleted();
           widget.onDeleted(true);
         case DeleteOutcome.needPermission:
           await _promptAllFilesAccess();

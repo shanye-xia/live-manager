@@ -68,17 +68,15 @@ class GoogleMotionPhotoDetector : LivePhotoDetector {
             motionOffset = videoStart,
             motionSize = videoSize,
             canPlayLiveVideo = true,
-            canDeleteLivePart = false,
-            canStripSafely = false,
+            canDeleteLivePart = true,
+            canStripSafely = true,
             reason = "标准 JPEG Motion Photo：XMP 容器长度与尾部 MP4 已验证，可只读提取尾部视频用于播放"
         )
     }
 
     private fun shouldInspect(displayName: String): Boolean {
         val lower = displayName.lowercase()
-        if (!lower.endsWith(".jpg") && !lower.endsWith(".jpeg")) return false
-        return Regex(""".*mp\.(jpg|jpeg)$""", RegexOption.IGNORE_CASE)
-            .matches(displayName)
+        return lower.endsWith(".jpg") || lower.endsWith(".jpeg")
     }
 
     private fun hasMotionPhotoFlag(xmp: String): Boolean {

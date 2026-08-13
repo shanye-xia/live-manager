@@ -199,6 +199,17 @@ class DetailViewModel extends ChangeNotifier {
   }
 
   /// 把动态视频（或非 Live 照片）移入应用回收站。
+  Future<void> markLivePartDeleted() async {
+    await stopPlayback();
+    final controller = _controller;
+    _controller = null;
+    _videoPath = null;
+    _videoError = null;
+    _playing = false;
+    await controller?.dispose();
+    notifyListeners();
+  }
+
   Future<DeleteOutcome> startDelete({bool videoOnly = true}) async {
     if (_busy) return DeleteOutcome.failed;
     if (videoOnly && item.isLive && !item.canDeleteLivePart) {
@@ -206,7 +217,7 @@ class DetailViewModel extends ChangeNotifier {
     }
     _busy = true;
     try {
-      if (item.canDeleteLivePart && !videoOnly) {
+      if (item.canDeleteLivePart && !videoOnly && !item.isGoogleMotionPhoto) {
         final videoPlan = await repository
             .moveToTrash(item, deleteVideo: true)
             .timeout(const Duration(seconds: 30));

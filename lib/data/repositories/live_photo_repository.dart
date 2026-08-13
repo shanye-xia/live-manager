@@ -152,7 +152,7 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
         (item.isLive && item.videoUri == null && item.videoSize != null)) {
       final videoSize = item.videoSize;
       if (videoSize == null || videoSize <= 0) {
-        throw const FileSystemException('Motion Photo 视频大小无效');
+        throw const FileSystemException('Motion Photo 视频信息未就绪');
       }
       return _service.getMotionVideo(
         imageId: item.imageId,
@@ -164,7 +164,31 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
     if (item.videoUri == null) {
       throw const FileSystemException('动态视频信息未就绪');
     }
-    return _directStoragePath(item, video: true);
+    return _legacyOrDetectedMotionVideoPath(item);
+  }
+
+  Future<String> _legacyOrDetectedMotionVideoPath(PhotoItem item) async {
+    try {
+      return await _directStoragePath(item, video: true);
+    } on FileSystemException {
+      final detected = await _service.detectMotionPhoto(item.imageUri);
+      final canPlay = detected['canPlayLiveVideo'] == true;
+      final videoSize = (detected['videoSize'] as num?)?.toInt();
+      final imageSize = (detected['imageSize'] as num?)?.toInt();
+      if (canPlay &&
+          videoSize != null &&
+          videoSize > 0 &&
+          imageSize != null &&
+          imageSize > videoSize) {
+        return _service.getMotionVideo(
+          imageId: item.imageId,
+          imageUri: item.imageUri,
+          totalSize: imageSize,
+          videoSize: videoSize,
+        );
+      }
+      throw const FileSystemException('动态视频信息未就绪');
+    }
   }
 
   @override
@@ -214,6 +238,16 @@ class MediaStoreLivePhotoRepository implements LivePhotoRepository {
   }) {
     if (deleteVideo && !item.canDeleteLivePart) {
       return Future.value({'status': 'failed'});
+    }
+    if (deleteVideo && item.isGoogleMotionPhoto) {
+      final videoSize = item.videoSize;
+      if (videoSize == null || videoSize <= 0) {
+        return Future.value({'status': 'failed'});
+      }
+      return _service.stripMotionVideo(
+        imageUri: item.imageUri,
+        videoSize: videoSize,
+      );
     }
     final uri = deleteVideo ? item.videoUri! : item.imageUri;
     final fileName = deleteVideo

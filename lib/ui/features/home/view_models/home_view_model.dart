@@ -272,6 +272,19 @@ class HomeViewModel extends ChangeNotifier {
     for (final item in targets) {
       try {
         if (item.isLive) {
+          if (item.isGoogleMotionPhoto) {
+            final imageResult = await repository.moveToTrash(
+              item,
+              deleteVideo: false,
+            );
+            if (imageResult['status'] == 'ok') {
+              deleted++;
+              deletedIds.add(item.imageId);
+            } else {
+              failed++;
+            }
+            continue;
+          }
           final videoResult = await repository.moveToTrash(
             item,
             deleteVideo: true,
@@ -323,9 +336,12 @@ class HomeViewModel extends ChangeNotifier {
               imageUri: item.imageUri,
               displayName: item.displayName,
               createTime: item.createTime,
-              imageSize: item.imageSize,
+              imageSize: _imageSizeAfterLivePartDelete(item),
               relativePath: item.relativePath,
               isLive: false,
+              liveProtocol: 'NONE',
+              canPlayLiveVideo: false,
+              canDeleteLivePart: false,
             ),
           );
           continue;
@@ -382,9 +398,12 @@ class HomeViewModel extends ChangeNotifier {
               imageUri: item.imageUri,
               displayName: item.displayName,
               createTime: item.createTime,
-              imageSize: item.imageSize,
+              imageSize: _imageSizeAfterLivePartDelete(item),
               relativePath: item.relativePath,
               isLive: false,
+              liveProtocol: 'NONE',
+              canPlayLiveVideo: false,
+              canDeleteLivePart: false,
             )
           else
             item,
@@ -432,6 +451,10 @@ class HomeViewModel extends ChangeNotifier {
               videoUri: null,
               videoSize: null,
               videoDurationMs: null,
+              imageSize: _imageSizeAfterLivePartDelete(item),
+              liveProtocol: 'NONE',
+              canPlayLiveVideo: false,
+              canDeleteLivePart: false,
             )
           else
             item,
@@ -447,6 +470,13 @@ class HomeViewModel extends ChangeNotifier {
 
   /// 原地应用恢复结果：视频恢复则把同名 JPG 恢复 LIVE 标记，
   /// 图片恢复则按时间插回列表。不重新扫描、保持滚动位置。
+  int _imageSizeAfterLivePartDelete(PhotoItem item) {
+    if (item.isGoogleMotionPhoto) {
+      return (item.imageSize - (item.videoSize ?? 0)).clamp(0, item.imageSize);
+    }
+    return item.imageSize;
+  }
+
   void applyRestored(Map<String, dynamic> info) {
     final mediaType = info['mediaType'] as String? ?? 'image';
     if (mediaType == 'video') {
