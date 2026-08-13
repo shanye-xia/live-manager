@@ -879,6 +879,16 @@ class _PhotoPageState extends State<_PhotoPage>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (item.canPlayLiveVideo) ...[
+                          _BottomActionButton(
+                            icon: _viewModel.isPlaying
+                                ? Icons.stop_rounded
+                                : Icons.play_arrow_rounded,
+                            label: _viewModel.isPlaying ? '停止' : '播放',
+                            onTap: _toggleLivePlayback,
+                          ),
+                          const SizedBox(width: 16),
+                        ],
                         _BottomActionButton(
                           icon: Icons.ios_share_rounded,
                           label: '分享',
@@ -920,6 +930,14 @@ class _PhotoPageState extends State<_PhotoPage>
           ),
       ],
     );
+  }
+
+  Future<void> _toggleLivePlayback() async {
+    if (_viewModel.isPlaying) {
+      await _viewModel.stopPlayback();
+    } else {
+      await _viewModel.startPlayback();
+    }
   }
 
   Future<void> _confirmDelete() async {
