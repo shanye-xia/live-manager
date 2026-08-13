@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../../data/repositories/live_photo_repository.dart';
@@ -25,6 +27,31 @@ class BatchExifResult {
   final int failed;
 }
 
+class _AsyncGate {
+  _AsyncGate(this.maxConcurrent);
+
+  final int maxConcurrent;
+  int _running = 0;
+  final List<VoidCallback> _waiters = [];
+
+  Future<T> run<T>(Future<T> Function() task) async {
+    if (_running >= maxConcurrent) {
+      final completer = Completer<void>();
+      _waiters.add(completer.complete);
+      await completer.future;
+    }
+    _running++;
+    try {
+      return await task();
+    } finally {
+      _running--;
+      if (_waiters.isNotEmpty) {
+        _waiters.removeAt(0)();
+      }
+    }
+  }
+}
+
 /// 首页 ViewModel：管理扫描状态、照片列表与缩略图缓存。
 class HomeViewModel extends ChangeNotifier {
   HomeViewModel({required this.repository});
@@ -38,6 +65,8 @@ class HomeViewModel extends ChangeNotifier {
   int _trashRevision = 0;
   final Map<int, Future<String>> _thumbnailFutures = {};
   final Map<int, String> _thumbnailPaths = {};
+  final _AsyncGate _thumbnailGate = _AsyncGate(3);
+  Future<void>? _loadInFlight;
   bool _selectionMode = false;
   final Set<int> _selectedIds = {};
   int _selectedLiveCount = 0;
@@ -95,7 +124,26 @@ class HomeViewModel extends ChangeNotifier {
         visible.every((e) => _selectedIds.contains(e.imageId));
   }
 
-  Future<void> load({bool startup = false}) async {
+  Future<void> load({bool startup = false}) {
+    final running = _loadInFlight;
+    if (running != null) {
+      return running;
+    }
+    final future = _loadInternal(startup: startup);
+    _loadInFlight = future;
+    return future.whenComplete(() {
+      if (_loadInFlight == future) {
+        _loadInFlight = null;
+      }
+    });
+  }
+
+  Future<void> refresh() async {
+    unawaited(load());
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+  }
+
+  Future<void> _loadInternal({bool startup = false}) async {
     if (_allItems.isEmpty) {
       await _restoreCachedSnapshot();
     }
@@ -164,7 +212,9 @@ class HomeViewModel extends ChangeNotifier {
   Future<String> thumbnailPathFor(PhotoItem item) {
     return _thumbnailFutures.putIfAbsent(item.imageId, () async {
       try {
-        final path = await repository.thumbnailPathFor(item);
+        final path = await _thumbnailGate.run(
+          () => repository.thumbnailPathFor(item),
+        );
         _thumbnailPaths[item.imageId] = path;
         return path;
       } catch (_) {
@@ -174,6 +224,9 @@ class HomeViewModel extends ChangeNotifier {
       }
     });
   }
+
+  String? cachedThumbnailPathFor(PhotoItem item) =>
+      _thumbnailPaths[item.imageId];
 
   void evictThumbnail(PhotoItem item) {
     final removedFuture = _thumbnailFutures.remove(item.imageId);

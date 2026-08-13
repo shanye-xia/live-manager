@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../../../domain/models/photo_item.dart';
 import '../../../core/exif_clear_options.dart';
@@ -35,12 +36,10 @@ class _HomeScreenState extends State<HomeScreen>
   double _lastScrollPixels = 0;
   Timer? _topButtonTimer;
   Timer? _scrollDateTimer;
-  Timer? _thumbnailResumeTimer;
   double _summaryHeight = 56.0;
   Timer? _summaryTimer;
   bool _animatingToTop = false;
   bool _showScrollDate = false;
-  bool _deferThumbnailLoading = false;
   DateTime? _scrollDate;
 
   // ---- 滑动多选：选择模式下横向滑动选择，纵向滑动翻页 ----
@@ -144,7 +143,6 @@ class _HomeScreenState extends State<HomeScreen>
     _stopSweepTimer();
     _topButtonTimer?.cancel();
     _scrollDateTimer?.cancel();
-    _thumbnailResumeTimer?.cancel();
     _summaryTimer?.cancel();
     _scrollController.removeListener(_onGridScroll);
     _scrollController.dispose();
@@ -201,17 +199,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _setScrollbarDragging(bool dragging) {
-    _thumbnailResumeTimer?.cancel();
-    if (dragging) {
-      if (!_deferThumbnailLoading) {
-        setState(() => _deferThumbnailLoading = true);
-      }
-      return;
-    }
-    _thumbnailResumeTimer = Timer(const Duration(milliseconds: 180), () {
-      if (!mounted || !_deferThumbnailLoading) return;
-      setState(() => _deferThumbnailLoading = false);
-    });
+    // 缩略图由每个可见格子自行延迟请求；滚动条拖动不再全局暂停加载。
   }
 
   void _scrollToTop() {
@@ -318,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen>
     final groups = _timelineGroups;
     final summary = _VisibleSummary.from(_visibleItems);
     return RefreshIndicator(
-      onRefresh: widget.viewModel.load,
+      onRefresh: widget.viewModel.refresh,
       child: SizedBox.expand(
         child: Stack(
           key: _sweepViewportKey,
@@ -333,7 +321,7 @@ class _HomeScreenState extends State<HomeScreen>
                   final maxExtent = constraints.maxWidth < 400 ? 120.0 : 160.0;
                   return CustomScrollView(
                     controller: _scrollController,
-                    cacheExtent: 0,
+                    scrollCacheExtent: const ScrollCacheExtent.viewport(1.2),
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
                       SliverToBoxAdapter(
@@ -373,9 +361,10 @@ class _HomeScreenState extends State<HomeScreen>
                               return _PhotoTile(
                                 index: globalIndex,
                                 item: item,
-                                thumbnailFuture: _deferThumbnailLoading
-                                    ? null
-                                    : widget.viewModel.thumbnailPathFor(item),
+                                initialThumbnailPath: widget.viewModel
+                                    .cachedThumbnailPathFor(item),
+                                thumbnailLoader:
+                                    widget.viewModel.thumbnailPathFor,
                                 onThumbnailError: () =>
                                     widget.viewModel.evictThumbnail(item),
                                 selectionMode: widget.viewModel.selectionMode,
@@ -1477,7 +1466,8 @@ class _PhotoTile extends StatefulWidget {
   const _PhotoTile({
     required this.index,
     required this.item,
-    required this.thumbnailFuture,
+    required this.initialThumbnailPath,
+    required this.thumbnailLoader,
     required this.onThumbnailError,
     required this.selectionMode,
     required this.selected,
@@ -1488,7 +1478,8 @@ class _PhotoTile extends StatefulWidget {
 
   final int index;
   final PhotoItem item;
-  final Future<String>? thumbnailFuture;
+  final String? initialThumbnailPath;
+  final Future<String> Function(PhotoItem item) thumbnailLoader;
   final VoidCallback onThumbnailError;
   final bool selectionMode;
   final bool selected;
@@ -1507,23 +1498,60 @@ class _PhotoTile extends StatefulWidget {
 }
 
 class _PhotoTileState extends State<_PhotoTile> {
+  static const _loadDelay = Duration(milliseconds: 48);
+
   Future<String>? _thumbnailFuture;
   String? _lastThumbnailPath;
+  Timer? _loadTimer;
   bool _thumbnailRetryScheduled = false;
 
   @override
   void initState() {
     super.initState();
-    _thumbnailFuture = widget.thumbnailFuture;
+    _lastThumbnailPath = widget.initialThumbnailPath;
+    if (_lastThumbnailPath == null || _lastThumbnailPath!.isEmpty) {
+      _scheduleThumbnailLoad();
+    }
   }
 
   @override
   void didUpdateWidget(_PhotoTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.thumbnailFuture != null &&
-        oldWidget.thumbnailFuture != widget.thumbnailFuture) {
-      _thumbnailFuture = widget.thumbnailFuture;
+    if (oldWidget.item.imageId != widget.item.imageId) {
+      _loadTimer?.cancel();
+      _thumbnailFuture = null;
+      _thumbnailRetryScheduled = false;
+      _lastThumbnailPath = widget.initialThumbnailPath;
+      if (_lastThumbnailPath == null || _lastThumbnailPath!.isEmpty) {
+        _scheduleThumbnailLoad();
+      }
+    } else if ((_lastThumbnailPath == null || _lastThumbnailPath!.isEmpty) &&
+        widget.initialThumbnailPath != null &&
+        widget.initialThumbnailPath!.isNotEmpty) {
+      _lastThumbnailPath = widget.initialThumbnailPath;
+      _thumbnailFuture = null;
+      _loadTimer?.cancel();
     }
+  }
+
+  @override
+  void dispose() {
+    _loadTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleThumbnailLoad() {
+    if (_thumbnailFuture != null || _loadTimer?.isActive == true) {
+      return;
+    }
+    _loadTimer = Timer(_loadDelay, () {
+      if (!mounted || _thumbnailFuture != null) {
+        return;
+      }
+      setState(() {
+        _thumbnailFuture = widget.thumbnailLoader(widget.item);
+      });
+    });
   }
 
   void _startSweepFromContext(BuildContext context) {
@@ -1595,11 +1623,8 @@ class _PhotoTileState extends State<_PhotoTile> {
   }
 
   Widget _buildThumbnail() {
-    if (widget.thumbnailFuture == null) {
-      final path = _lastThumbnailPath;
-      if (path == null || path.isEmpty) {
-        return const _TilePlaceholder();
-      }
+    final path = _lastThumbnailPath;
+    if (path != null && path.isNotEmpty) {
       return _ThumbnailImage(path: path, onError: _scheduleThumbnailRetry);
     }
     final future = _thumbnailFuture;

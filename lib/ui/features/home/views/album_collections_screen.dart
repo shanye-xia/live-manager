@@ -48,7 +48,7 @@ class _AlbumCollectionsScreenState extends State<AlbumCollectionsScreen>
     final albums = _buildAlbums(widget.viewModel.items);
     if (albums.isEmpty) {
       return RefreshIndicator(
-        onRefresh: widget.viewModel.load,
+        onRefresh: widget.viewModel.refresh,
         child: ListView(
           children: const [
             SizedBox(height: 180),
@@ -59,7 +59,7 @@ class _AlbumCollectionsScreenState extends State<AlbumCollectionsScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: widget.viewModel.load,
+      onRefresh: widget.viewModel.refresh,
       child: GridView.builder(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
