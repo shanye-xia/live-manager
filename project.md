@@ -1,50 +1,33 @@
 # LiveKit 产品说明
 
-当前版本：`v0.1.0`
+当前版本：`v0.2.0`
 
 ## 1. 产品定位
 
-LiveKit 是一个面向 Android Live Photo 的本地相册管理工具。
+LiveKit 是一个面向 Android Live Photo / Motion Photo 的本地相册管理工具。
 
-v0.1 的核心目标是稳定支持 vivo 传统 Live Photo 双文件格式：
+它不是完整系统相册替代品，也不是云相册、图片编辑器或视频编辑器。它的核心目标是：
 
 ```text
-IMG_xxx.jpg
-IMG_xxx.mp4
+正确识别 Live Photo / Motion Photo
+看清静态照片和动态视频的空间占用
+安全清理不需要的动态部分
+尽量保留用户原始静态照片
 ```
 
-应用把 JPG 和对应 MP4 作为一张 Live Photo 展示和管理，避免第三方相册把照片和动态视频拆开显示。
+典型场景是：用户旅行或日常拍摄时长期打开 Live 模式，后来发现很多照片其实只需要静态图，但动态视频部分占用了大量空间。
 
-## 2. 不做什么
+## 2. 当前支持范围
 
-LiveKit 当前不是：
+### 2.1 vivo 传统双文件 Live Photo
 
-- 完整相册替代品
-- 云相册
-- 图片编辑器
-- 视频编辑器
-- 在线同步工具
-
-v0.1 的重点是：
+格式：
 
 ```text
-正确识别 Live Photo
-提供流畅浏览体验
-安全管理动态部分
-保护用户原始照片
-```
-
-## 3. v0.1 支持范围
-
-### 3.1 支持的 Live 格式
-
-vivo 双文件格式：
-
-```text
-同目录
-同基础文件名
+同一目录
+同一基础文件名
 JPG/JPEG + MP4
-MP4 时长小于 Live 阈值
+MP4 时长在 Live Photo 合理范围内
 ```
 
 示例：
@@ -54,30 +37,53 @@ DCIM/Camera/IMG_001.jpg
 DCIM/Camera/IMG_001.mp4
 ```
 
-### 3.2 暂不支持的格式
+清理策略：
 
-v0.1 暂不完整支持：
+```text
+保留 JPG/JPEG
+处理同名 MP4
+```
 
-- Google / Pixel Motion Photo 单文件
-- 小米 Motion Photo
-- OPPO / OnePlus Motion Photo
-- Samsung Motion Photo
-- Huawei / Honor Live Photo
-- HEIC / HEIF 单文件动态照片清理
+### 2.2 标准 JPEG Motion Photo
 
-这些会进入二期协议检测架构。
+格式：
 
-## 4. v0.1 核心功能
+```text
+单个 JPG/JPEG 文件
+XMP metadata 描述 Motion Photo
+尾部内嵌 MP4 视频数据
+metadata 中的 video size / offset 可校验
+```
+
+清理策略：
+
+```text
+校验 XMP 和尾部 MP4
+移除 Motion Photo 动态标记和视频尾部数据
+保留静态 JPEG
+```
+
+只有验证通过时才允许清理。
+
+## 3. 当前不完整支持
+
+- HEIC / HEIF Motion Photo
+- 厂商私有 Motion Photo 变体
+- 未知 metadata 格式
+- 不能被安全校验的嵌入式视频结构
+
+这些格式可以被后续检测页用于分析，但不能直接进入清理流程。
+
+## 4. 核心功能
 
 ### 4.1 首页时间线
 
 - 全部照片浏览
 - Live 照片筛选
-- 回收站入口
 - 今天 / 昨天 / 一周内 / 月份分组
-- 滚动时显示当前时间位置
+- 滚动时显示当前位置日期
 - 自定义右侧滚动条
-- 缩略图懒加载缓存
+- 缩略图懒加载和 100MB 磁盘缓存
 
 ### 4.2 合集
 
@@ -95,21 +101,19 @@ v0.1 暂不完整支持：
 - 双击缩放
 - 双指缩放
 - 放大后边界切页
-- 长按播放 Live 视频
+- 长按或按钮播放 Live 动态视频
 - 点击隐藏 / 显示 UI
 
-### 4.4 信息与 EXIF
+### 4.4 信息和 EXIF
 
-- 显示文件名、日期、大小、路径
-- 显示图片大小、动态视频大小、总大小
+- 显示日期、大小、路径
+- 显示静态图大小、动态视频大小、总大小
 - 显示常见 EXIF
 - GPS 支持地名和数字坐标
-- 路径可尝试跳转文件管理器
 - 支持编辑 EXIF 常见字段
-- 高级 EXIF 字段折叠显示
 - 支持清除敏感 EXIF 信息
 
-### 4.5 分享与删除
+### 4.5 分享和删除
 
 - 单张分享
 - 多选批量分享
@@ -125,59 +129,52 @@ v0.1 暂不完整支持：
 
 - 用户未确认，不删除任何真实手机数据
 - 删除整张照片或永久删除必须二次确认
-- 删除 Live 动态部分时，vivo 双文件只处理 MP4，保留 JPG
-- 后续单文件 Motion Photo 不直接覆盖原图，优先生成静态副本
+- 删除 Live 动态部分必须明确告诉用户会发生什么
 - 未知格式不执行清理
+- Motion Photo 必须通过 metadata 和视频结构校验
 
 ## 6. 性能要求
 
-v0.1 以真实滑动体验为优先：
+真实滑动体验优先：
 
 - 首页缩略图懒生成
 - 缩略图磁盘缓存上限 100MB
-- 大图和视频优先直读系统路径
 - 启动优先显示上次扫描快照
-- 后台扫描更新数据
+- 后台扫描刷新数据
+- 滚动日期提示局部刷新，不重建整个网格
+- 详情页预加载相邻图片
+- 大图和视频优先直读系统路径
 - 避免全库启动预热
 
 ## 7. APK 版本
 
-v0.1 发布包使用：
+v0.2.0 发布包使用：
 
 ```text
-versionName: 0.1.0
-versionCode: 1
+versionName: 0.2.0
+versionCode: 2014
 ```
 
 对应 Flutter：
 
 ```text
-version: 0.1.0+1
+version: 0.2.0+2014
 ```
 
-## 8. 二期产品目标
+## 8. 后续产品目标
 
-二期目标是从 vivo 专用工具升级为通用 Android Live Photo 管理器。
+下一阶段目标是继续从 vivo / 标准 Motion Photo 扩展到更多 Android 厂商格式。
 
-核心不是“按品牌判断”，而是“按协议判断”：
+核心不是按品牌硬编码，而是按协议判断：
 
 ```text
 文件结构
 + metadata
-+ offset/size 合法性
++ offset / size 合法性
 + 视频结构校验
 ```
 
-计划支持：
-
-- vivo 双文件协议
-- Google Motion Photo V2
-- Google MicroVideo V1
-- OPPO / OnePlus 扩展协议
-- HEIC Motion Photo 识别
-- 未知嵌入式 MP4 安全检测
-
-二期仍然坚持：
+仍然坚持：
 
 ```text
 安全性 > 正确性 > 支持数量
